@@ -38,37 +38,22 @@
       </div>
 
       <!-- Mode: Analysis (Spectrogram) -->
-      <div v-show="viewMode === 'analysis'" class="stage-content analysis-mode">
-         <canvas ref="spectrogramCanvas" class="spectrogram-canvas"></canvas>
-         <div class="analysis-overlay">
-            <div class="analysis-stat">
-               <span class="label">Note: </span>
-               <span class="value">{{ dominantNote }}</span>
-               <span class="debug-info" style="font-size: 0.8rem; color: #888; margin-left: 10px;">
-                 ({{ dominantFreq }} Hz)
-               </span>
-            </div>
-         </div>
+      <div v-if="viewMode === 'analysis'" class="stage-content analysis-mode">
+         <SpectrogramVisualizer 
+           ref="spectrogramRef"
+           :audioContext="audioContext"
+           :analyser="analyser"
+           :dataArray="dataArray"
+           :isMetronomeOn="isMetronomeOn"
+           :lastBeatTime="lastBeatTime"
+           :score="score"
+         />
       </div>
     </div>
 
     <!-- Right: Side Rack -->
     <div class="side-rack" :class="{ collapsed: isRackCollapsed }">
-      <div class="rack-module metronome">
-        <div class="module-header">
-          <div class="module-title">METRONOME</div>
-          <div class="module-status" :class="{ active: isMetronomeOn }"></div>
-        </div>
-        <div class="bpm-display">{{ bpm }} <span class="bpm-label">BPM</span></div>
-        <div class="knob-control">
-           <n-slider v-model:value="bpm" :min="40" :max="208" :step="1" vertical style="height: 100px;" />
-        </div>
-        <div class="rack-controls">
-           <button class="rack-btn primary" @click="toggleMetronome">
-             {{ isMetronomeOn ? 'STOP' : 'START' }}
-           </button>
-        </div>
-      </div>
+      <MetronomePanel ref="metronomeRef" :onBeat="onBeat" />
       
       <div class="rack-module tuner">
         <div class="module-title">TUNER</div>
@@ -123,8 +108,10 @@ import { useRoute } from 'vue-router'
 import axios from 'axios'
 import WaveSurfer from 'wavesurfer.js'
 import * as Tone from 'tone'
-import { useMessage, NSlider } from 'naive-ui'
+import { useMessage } from 'naive-ui'
 import { useUserStore } from '../stores/user'
+import MetronomePanel from '../components/MetronomePanel.vue'
+import SpectrogramVisualizer from '../components/SpectrogramVisualizer.vue'
 
 const route = useRoute()
 const scoreId = route.params.scoreId
@@ -150,25 +137,23 @@ const startX = ref(0)
 const startY = ref(0)
 
 // Metronome State
-const bpm = ref(90)
-const isMetronomeOn = ref(false)
-let metronomeLoop = null
-const lastBeatTime = ref(0) // For spectrogram markers
-const dominantNote = ref('-')
-const dominantFreq = ref(0)
+const metronomeRef = ref(null)
+const isMetronomeOn = computed(() => metronomeRef.value?.isMetronomeOn || false)
+const lastBeatTime = ref(0)
+
+const onBeat = (time) => {
+  lastBeatTime.value = time
+}
 
 // Spectrum & Spectrogram State
 const spectrumCanvas = ref(null)
-const spectrogramCanvas = ref(null)
+const spectrogramRef = ref(null) // Ref to child component
 let audioContext = null
 let analyser = null
 let dataArray = null
 let animationId = null
 let mediaRecorder = null
 let audioChunks = []
-let tempCanvas = null // Offscreen canvas for scrolling
-let tempCtx = null
-let colormap = [] // Precomputed colors
 
 const scoreStyle = computed(() => ({
   transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
@@ -215,36 +200,6 @@ const onDrag = (e) => {
 const stopDrag = () => {
   isDragging.value = false
 }
-
-// --- Metronome Logic ---
-const toggleMetronome = async () => {
-  if (isMetronomeOn.value) {
-    Tone.Transport.stop()
-    isMetronomeOn.value = false
-  } else {
-    await Tone.start()
-    Tone.Transport.bpm.value = bpm.value
-    
-    if (!metronomeLoop) {
-      const synth = new Tone.MembraneSynth().toDestination()
-      metronomeLoop = new Tone.Loop((time) => {
-        synth.triggerAttackRelease("C2", "8n", time)
-        // Record beat time for spectrogram
-        lastBeatTime.value = Date.now()
-      }, "4n")
-      metronomeLoop.start(0)
-    }
-    
-    Tone.Transport.start()
-    isMetronomeOn.value = true
-  }
-}
-
-watch(bpm, (newBpm) => {
-  if (isMetronomeOn.value) {
-    Tone.Transport.bpm.value = newBpm
-  }
-})
 
 // --- Audio & Spectrum Logic ---
 const initWaveSurfer = (audioPath) => {
@@ -301,14 +256,10 @@ const startRecording = async () => {
     const source = audioContext.createMediaStreamSource(stream)
     source.connect(analyser)
     
-    source.connect(analyser)
-    
-    analyser.fftSize = 16384 // Max resolution for Web Audio API (usually)
-    // analyser.smoothingTimeConstant = 0 // Optional: Remove smoothing for raw data
+    analyser.fftSize = 16384
     const bufferLength = analyser.frequencyBinCount
     dataArray = new Uint8Array(bufferLength)
     
-    initColormap()
     drawSpectrum()
 
     mediaRecorder.ondataavailable = (event) => {
@@ -340,57 +291,11 @@ const startRecording = async () => {
   }
 }
 
-// Generate custom colormap based on dB scale image
-// -120dB (Black/Dark Green) -> -60dB (Pink) -> -30dB (Yellow) -> 0dB (White)
-const initColormap = () => {
-  colormap = []
-  for (let i = 0; i < 256; i++) {
-    // i is 0-255, representing -100dB to -30dB range typically mapped by AnalyserNode
-    // But we can define our own gradient.
-    // Let's approximate the provided scale:
-    // Low (0-50): Dark Green/Black (#001100)
-    // Mid-Low (50-100): Purple/Pink (#800080)
-    // Mid-High (100-180): Orange/Yellow (#FFD700)
-    // High (180-255): White (#FFFFFF)
-    
-    let r, g, b
-    if (i < 50) {
-       // Black to Dark Green
-       r = 0
-       g = Math.floor((i / 50) * 50)
-       b = Math.floor((i / 50) * 50)
-    } else if (i < 120) {
-       // Dark Green to Purple/Pink
-       // Start: 0, 50, 50
-       // End: 200, 100, 200 (Pinkish)
-       const t = (i - 50) / 70
-       r = Math.floor(0 + t * 200)
-       g = Math.floor(50 + t * 50)
-       b = Math.floor(50 + t * 150)
-    } else if (i < 200) {
-       // Pink to Yellow/White
-       // Start: 200, 100, 200
-       // End: 255, 255, 200
-       const t = (i - 120) / 80
-       r = Math.floor(200 + t * 55)
-       g = Math.floor(100 + t * 155)
-       b = 200
-    } else {
-       // Yellow to White
-       const t = (i - 200) / 55
-       r = 255
-       g = 255
-       b = Math.floor(200 + t * 55)
-    }
-    colormap[i] = `rgb(${r}, ${g}, ${b})`
-  }
-}
-
 const drawSpectrum = () => {
-  if (!spectrumCanvas.value && !spectrogramCanvas.value) return
+  if (!spectrumCanvas.value) return
   
   animationId = requestAnimationFrame(drawSpectrum)
-  analyser.getByteFrequencyData(dataArray)
+  if (analyser) analyser.getByteFrequencyData(dataArray)
   
   // 1. Draw Bottom Spectrum (Instantaneous)
   if (spectrumCanvas.value) {
@@ -402,288 +307,25 @@ const drawSpectrum = () => {
     ctx.fillStyle = '#121214'
     ctx.fillRect(0, 0, width, height)
     
-    const barWidth = (width / dataArray.length) * 2.5
-    let barHeight
-    let x = 0
-    
-    const gradient = ctx.createLinearGradient(0, height, 0, 0)
-    gradient.addColorStop(0, '#008B8B') 
-    gradient.addColorStop(0.5, '#00FFFF') 
-    gradient.addColorStop(1, '#FFFFFF') 
-    
-    ctx.fillStyle = gradient
-    
-    for(let i = 0; i < dataArray.length; i++) {
-      barHeight = dataArray[i] / 255 * height
-      ctx.fillRect(x, height - barHeight, barWidth, barHeight)
-      x += barWidth + 1
-    }
-  }
-
-  // 2. Draw Spectrogram (Log Scale) & Pitch Detection
-  if (viewMode.value === 'analysis' && spectrogramCanvas.value) {
-     const canvas = spectrogramCanvas.value
-     const ctx = canvas.getContext('2d')
-     const width = canvas.width
-     const height = canvas.height
-     
-     if (!tempCanvas) {
-       tempCanvas = document.createElement('canvas')
-       tempCanvas.width = width
-       tempCanvas.height = height
-       tempCtx = tempCanvas.getContext('2d')
-       tempCtx.fillStyle = '#000'
-       tempCtx.fillRect(0, 0, width, height)
-     }
-     
-     // Shift existing image
-     tempCtx.drawImage(canvas, -1, 0)
-     
-     const sampleRate = audioContext.sampleRate
-     const minNote = 48 // C3
-     const maxNote = 96 // C7
-     const totalNotes = maxNote - minNote
-     
-     // --- A. Draw Log-Scale Spectrogram Column ---
-     for (let y = 0; y < height; y++) {
-        const normalizedY = 1 - (y / height)
-        const noteNum = minNote + normalizedY * totalNotes
-        const freq = 440 * Math.pow(2, (noteNum - 69) / 12)
-        const binIndex = Math.floor(freq * analyser.fftSize / sampleRate)
-        const value = dataArray[binIndex] || 0
-        tempCtx.fillStyle = colormap[value]
-        tempCtx.fillRect(width - 1, y, 1, 1)
-     }
-     
-     // --- B. Pitch Detection (YIN Algorithm + Smoothing) ---
-     // Use a smaller buffer for pitch detection to save CPU
-     const pdSize = 2048
-     const buffer = new Float32Array(pdSize)
-     analyser.getFloatTimeDomainData(buffer) // This fills up to fftSize, but we only use first pdSize
-     
-     const rawFreq = getPitchYIN(buffer.slice(0, pdSize), sampleRate)
-     let detectedFreq = 0
-     
-     // Smoothing (Median Filter)
-     if (rawFreq > 0) {
-        freqHistory.push(rawFreq)
-        if (freqHistory.length > 5) freqHistory.shift()
-        
-        // Simple Median
-        const sorted = [...freqHistory].sort((a, b) => a - b)
-        detectedFreq = sorted[Math.floor(sorted.length / 2)]
-     } else {
-        // Decay history if silence
-        if (freqHistory.length > 0) freqHistory.shift()
-     }
-     
-     let detectedNote = '-'
-     let deviation = 0
-     
-     if (detectedFreq > 0) {
-        const midiNum = 69 + 12 * Math.log2(detectedFreq / 440)
-        const roundedMidi = Math.round(midiNum)
-        deviation = (midiNum - roundedMidi) * 100 // Cents
-        
-        if (roundedMidi >= minNote && roundedMidi <= maxNote) {
-           detectedNote = Tone.Frequency(detectedFreq).toNote()
-           dominantFreq.value = Math.round(detectedFreq)
-           dominantNote.value = getNoteLabel(roundedMidi)
-           
-           // --- C. Visualize Pitch Marker (Glowing Capsule) ---
-           const exactNormalizedY = (midiNum - minNote) / totalNotes
-           const yPos = height * (1 - exactNormalizedY)
-           
-           // Color & Glow Logic
-           let color = '#EF4444' // Red (Default/Bad)
-           let glowColor = 'transparent'
-           let glowBlur = 0
-           
-           const absDev = Math.abs(deviation)
-           if (absDev <= 10) {
-              color = '#10B981' // Emerald Green
-              glowColor = '#10B981'
-              glowBlur = 10
-           } else if (absDev <= 30) {
-              color = '#F59E0B' // Amber
-              glowColor = '#F59E0B'
-              glowBlur = 5
-           }
-           
-           // Draw Capsule on Temp Ctx (Scrolling)
-           tempCtx.save()
-           tempCtx.fillStyle = color
-           tempCtx.shadowColor = glowColor
-           tempCtx.shadowBlur = glowBlur
-           
-           // Capsule shape
-           const capsuleWidth = 12
-           const capsuleHeight = 6
-           const x = width - capsuleWidth - 2
-           const y = yPos - capsuleHeight / 2
-           
-           tempCtx.beginPath()
-           tempCtx.roundRect(x, y, capsuleWidth, capsuleHeight, 3)
-           tempCtx.fill()
-           tempCtx.restore()
-        }
-     } else {
-        dominantFreq.value = 0
-        dominantNote.value = '-'
-     }
-
-     // Draw Beat Marker
-     if (isMetronomeOn.value && Date.now() - lastBeatTime.value < 50) { 
-        tempCtx.fillStyle = 'rgba(255, 255, 255, 0.5)'
-        tempCtx.fillRect(width - 1, 0, 1, height)
-     }
-     
-     // 1. Draw Scrolling Spectrogram
-     ctx.drawImage(tempCanvas, 0, 0)
-     
-     // 2. Draw Static Grid Overlay
-     drawGrid(ctx, width, height, minNote, maxNote)
-  }
-}
-
-// --- Helper Functions ---
-
-const freqHistory = [] // State for smoothing
-
-// YIN Algorithm (Simplified)
-const getPitchYIN = (buf, sampleRate) => {
-  const threshold = 0.15
-  const bufferSize = buf.length
-  const yinBuffer = new Float32Array(bufferSize / 2)
-  
-  // Step 1: Difference Function
-  for (let t = 0; t < bufferSize / 2; t++) {
-    yinBuffer[t] = 0
-    for (let i = 0; i < bufferSize / 2; i++) {
-      const delta = buf[i] - buf[i + t]
-      yinBuffer[t] += delta * delta
-    }
-  }
-  
-  // Step 2: Cumulative Mean Normalized Difference
-  yinBuffer[0] = 1
-  let runningSum = 0
-  for (let t = 1; t < bufferSize / 2; t++) {
-    runningSum += yinBuffer[t]
-    yinBuffer[t] *= t / runningSum
-  }
-  
-  // Step 3: Absolute Threshold
-  let tau = -1
-  for (let t = 2; t < bufferSize / 2; t++) {
-    if (yinBuffer[t] < threshold) {
-      while (t + 1 < bufferSize / 2 && yinBuffer[t + 1] < yinBuffer[t]) {
-        t++
+    if (dataArray) {
+      const barWidth = (width / dataArray.length) * 2.5
+      let barHeight
+      let x = 0
+      
+      const gradient = ctx.createLinearGradient(0, height, 0, 0)
+      gradient.addColorStop(0, '#008B8B') 
+      gradient.addColorStop(0.5, '#00FFFF') 
+      gradient.addColorStop(1, '#FFFFFF') 
+      
+      ctx.fillStyle = gradient
+      
+      for(let i = 0; i < dataArray.length; i++) {
+        barHeight = dataArray[i] / 255 * height
+        ctx.fillRect(x, height - barHeight, barWidth, barHeight)
+        x += barWidth + 1
       }
-      tau = t
-      break
     }
   }
-  
-  if (tau === -1) return -1 // No pitch found
-  
-  // Step 4: Parabolic Interpolation
-  const betterTau = parabolicInterpolation(yinBuffer, tau)
-  return sampleRate / betterTau
-}
-
-const parabolicInterpolation = (array, x) => {
-  const x0 = x < 1 ? x : x - 1
-  const x2 = x + 1 < array.length ? x + 1 : x
-  if (x0 === x) return x
-  if (x2 === x) return x
-  
-  const s0 = array[x0]
-  const s1 = array[x]
-  const s2 = array[x2]
-  
-  let newx = x + (s2 - s0) / (2 * (2 * s1 - s2 - s0))
-  return newx
-}
-
-const drawGrid = (ctx, width, height, minNote, maxNote) => {
-  const totalNotes = maxNote - minNote
-  ctx.save()
-  
-  ctx.font = '10px Roboto Mono'
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'middle'
-  
-  for (let n = minNote; n <= maxNote; n++) {
-     const normalizedY = (n - minNote) / totalNotes
-     const y = height * (1 - normalizedY)
-     
-     const noteName = Tone.Frequency(440 * Math.pow(2, (n - 69) / 12)).toNote()
-     const isC = noteName.startsWith('C') && !noteName.includes('#') // C3, C4...
-     const isSharp = noteName.includes('#')
-     
-     ctx.beginPath()
-     if (isC) {
-        // C-key Reference: Thicker, more visible
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
-        ctx.lineWidth = 1.5
-        ctx.setLineDash([])
-        
-        // Label on Left
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
-        ctx.fillText(noteName, 4, y)
-     } else if (isSharp) {
-        // Semitone: Very faint
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([2, 4])
-     } else {
-        // Whole tone (non-C): Faint solid
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([])
-     }
-     
-     ctx.moveTo(0, y)
-     ctx.lineTo(width, y)
-     ctx.stroke()
-  }
-  ctx.restore()
-}
-
-const getNoteLabel = (midiNum) => {
-  // Determine Key Offset
-  // Default to C Major if no score or key
-  let root = 0 // C
-  if (score.value && score.value.song_key) {
-     const keyMap = {
-       'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3,
-       'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8,
-       'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
-     }
-     // Handle "G Major" -> "G"
-     const keyName = score.value.song_key.split(' ')[0]
-     if (keyMap[keyName] !== undefined) root = keyMap[keyName]
-  }
-  
-  const relativeIndex = (midiNum - root) % 12
-  // Jianpu Map (Major Scale)
-  // 0(1), 2(2), 4(3), 5(4), 7(5), 9(6), 11(7)
-  const jianpuMap = {
-    0: '1', 1: '#1', 2: '2', 3: '#2', 4: '3', 5: '4',
-    6: '#4', 7: '5', 8: '#5', 9: '6', 10: '#6', 11: '7'
-  }
-  
-  // If we want to support "b7" instead of "#6", logic gets complex.
-  // For now, simple mapping.
-  // Also append octave? User example didn't show octave for Jianpu.
-  // But for Absolute (C4), we use Tone.js
-  
-  // For now, return Absolute + Relative
-  const abs = Tone.Frequency(440 * Math.pow(2, (midiNum - 69) / 12)).toNote()
-  const rel = jianpuMap[relativeIndex] || '?'
-  
-  return `${abs} (${rel})`
 }
 
 const stopSpectrum = () => {
@@ -692,7 +334,6 @@ const stopSpectrum = () => {
     audioContext.close()
     audioContext = null
   }
-  tempCanvas = null
 }
 
 const stopRecording = () => {
@@ -732,11 +373,8 @@ const resizeCanvases = () => {
     spectrumCanvas.value.width = spectrumCanvas.value.offsetWidth
     spectrumCanvas.value.height = spectrumCanvas.value.offsetHeight
   }
-  if (spectrogramCanvas.value) {
-    spectrogramCanvas.value.width = spectrogramCanvas.value.offsetWidth
-    spectrogramCanvas.value.height = spectrogramCanvas.value.offsetHeight
-    // Reset temp canvas on resize
-    tempCanvas = null
+  if (spectrogramRef.value) {
+    spectrogramRef.value.resizeCanvases()
   }
 }
 
@@ -752,10 +390,6 @@ onMounted(() => {
 onUnmounted(() => {
   if (wavesurfer.value) wavesurfer.value.destroy()
   stopSpectrum()
-  if (metronomeLoop) {
-    metronomeLoop.dispose()
-    Tone.Transport.stop()
-  }
 })
 
 watch(viewMode, () => {
@@ -869,28 +503,6 @@ watch(viewMode, () => {
   background-color: #000;
 }
 
-.spectrogram-canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.analysis-overlay {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  background: rgba(0,0,0,0.5);
-  padding: 8px 16px;
-  border-radius: 8px;
-  pointer-events: none;
-}
-
-.analysis-stat {
-  font-family: 'Roboto Mono', monospace;
-  color: #50C878;
-  font-size: 1.2rem;
-}
-
 /* Side Rack */
 .side-rack {
   grid-column: 2 / 3;
@@ -928,11 +540,6 @@ watch(viewMode, () => {
 }
 
 .module-title { font-size: 0.8rem; font-weight: 700; color: #666; letter-spacing: 1px; }
-.bpm-display { font-family: 'Roboto Mono', monospace; font-size: 2.5rem; color: #50C878; font-weight: bold; }
-.bpm-label { font-size: 0.8rem; color: #666; }
-.rack-btn { background: #333; border: none; color: #fff; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
-.rack-btn.primary { background: #50C878; color: #000; }
-.rack-btn:hover { filter: brightness(1.1); }
 .tuner-notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; }
 .note-btn { background: #333; border: 1px solid #444; color: #aaa; padding: 8px; border-radius: 4px; cursor: pointer; }
 .note-btn:hover { background: #444; color: #fff; }
