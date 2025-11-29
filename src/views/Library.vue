@@ -12,7 +12,8 @@
             <img :src="getScoreImageUrl(score.image_path)" style="height: 200px; object-fit: cover;" />
           </template>
           <n-space vertical>
-            <n-tag>调性: {{ score.flute_key }}</n-tag>
+            <n-tag>原调: {{ score.song_key }}</n-tag>
+            <n-tag>笛子: {{ score.flute_key }}</n-tag>
             <n-tag>指法: {{ score.fingering }}</n-tag>
             <n-button block secondary type="info" @click="goToPractice(score.id)">进入练习</n-button>
             <n-button block secondary @click="addToPlaylist(score.id)">加入列表</n-button>
@@ -24,14 +25,17 @@
     <n-modal v-model:show="showUploadModal">
       <n-card style="width: 600px" title="上传新曲谱" :bordered="false" size="huge" role="dialog" aria-modal="true">
         <n-form>
-          <n-form-item label="曲名">
-            <n-input v-model:value="uploadForm.title" />
+          <n-form-item label="曲名" required>
+            <n-input v-model:value="uploadForm.title" placeholder="请输入曲名" />
           </n-form-item>
-          <n-form-item label="调性 (如 G)">
-            <n-input v-model:value="uploadForm.flute_key" />
+          <n-form-item label="曲子调性 (如 降B)" required>
+            <n-input v-model:value="uploadForm.song_key" placeholder="请输入曲子原调" />
           </n-form-item>
-          <n-form-item label="指法 (如 全按作5)">
-            <n-input v-model:value="uploadForm.fingering" />
+          <n-form-item label="笛子调性 (如 F调)" required>
+            <n-input v-model:value="uploadForm.flute_key" placeholder="请输入使用的笛子调性" />
+          </n-form-item>
+          <n-form-item label="指法 (如 全按作2)" required>
+            <n-input v-model:value="uploadForm.fingering" placeholder="请输入指法" />
           </n-form-item>
           <n-form-item label="曲谱图片">
             <input type="file" @change="handleImageChange" accept="image/*" />
@@ -67,6 +71,7 @@ const userStore = useUserStore()
 
 const uploadForm = ref({
   title: '',
+  song_key: '',
   flute_key: '',
   fingering: '',
   image: null,
@@ -97,7 +102,7 @@ const handleAudioChange = (event) => {
 }
 
 const handleUpload = async () => {
-  if (!uploadForm.value.title || !uploadForm.value.image || !uploadForm.value.audio) {
+  if (!uploadForm.value.title || !uploadForm.value.song_key || !uploadForm.value.flute_key || !uploadForm.value.fingering || !uploadForm.value.image || !uploadForm.value.audio) {
     message.warning('请填写完整信息并上传文件')
     return
   }
@@ -105,6 +110,7 @@ const handleUpload = async () => {
   uploading.value = true
   const formData = new FormData()
   formData.append('title', uploadForm.value.title)
+  formData.append('song_key', uploadForm.value.song_key)
   formData.append('flute_key', uploadForm.value.flute_key)
   formData.append('fingering', uploadForm.value.fingering)
   formData.append('image', uploadForm.value.image)
