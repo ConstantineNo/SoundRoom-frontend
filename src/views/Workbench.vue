@@ -1,47 +1,91 @@
 <template>
-  <div style="height: calc(100vh - 80px); display: flex; flex-direction: column;">
-    <!-- Top: Score Viewer -->
-    <div style="flex: 1; overflow: auto; background: #f0f0f0; text-align: center; position: relative;">
-      <div v-if="score">
-        <img :src="getScoreImageUrl(score.image_path)" style="max-width: 100%;" />
+  <div class="workbench-container">
+    <!-- Center Stage: Score -->
+    <div class="score-stage" ref="scoreContainer" @wheel.prevent="handleZoom" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag">
+      <div v-if="score" class="score-wrapper" :style="scoreStyle">
+        <img :src="getScoreImageUrl(score.image_path)" class="score-image" draggable="false" />
       </div>
-      <div v-else>Loading score...</div>
+      <div v-else class="loading-text">Loading score...</div>
     </div>
 
-    <!-- Middle: Tuner (Placeholder) -->
-    <div style="height: 60px; background: #333; color: white; display: flex; align-items: center; justify-content: center;">
-      <n-button @click="playNote('C4')">C4</n-button>
-      <n-button @click="playNote('D4')">D4</n-button>
-      <n-button @click="playNote('E4')">E4</n-button>
-      <n-button @click="playNote('F4')">F4</n-button>
-      <n-button @click="playNote('G4')">G4</n-button>
-      <span style="margin-left: 20px;">校音器 (点击发声)</span>
+    <!-- Right: Side Rack -->
+    <div class="side-rack">
+      <div class="rack-module metronome">
+        <div class="module-header">
+          <div class="module-title">METRONOME</div>
+          <div class="module-status" :class="{ active: isMetronomeOn }"></div>
+        </div>
+        <div class="bpm-display">{{ bpm }} <span class="bpm-label">BPM</span></div>
+        <div class="knob-control">
+           <n-slider v-model:value="bpm" :min="40" :max="208" :step="1" vertical style="height: 100px;" />
+        </div>
+        <div class="rack-controls">
+           <button class="rack-btn primary" @click="toggleMetronome">
+             {{ isMetronomeOn ? 'STOP' : 'START' }}
+           </button>
+        </div>
+      </div>
+      
+      <!-- Tuner Module (Placeholder for visual balance) -->
+      <div class="rack-module tuner">
+        <div class="module-title">TUNER</div>
+        <div class="tuner-notes">
+           <button class="note-btn" @click="playNote('C4')">C</button>
+           <button class="note-btn" @click="playNote('D4')">D</button>
+           <button class="note-btn" @click="playNote('E4')">E</button>
+           <button class="note-btn" @click="playNote('F4')">F</button>
+           <button class="note-btn" @click="playNote('G4')">G</button>
+           <button class="note-btn" @click="playNote('A4')">A</button>
+           <button class="note-btn" @click="playNote('B4')">B</button>
+        </div>
+      </div>
     </div>
 
-    <!-- Bottom: Audio Console -->
-    <div style="height: 150px; background: #222; padding: 10px; color: white;">
-      <div id="waveform" style="margin-bottom: 10px;"></div>
-      <canvas ref="spectrumCanvas" width="1024" height="100" style="width: 100%; height: 100px; background: #000; display: block; margin-bottom: 10px;"></canvas>
-      <div style="display: flex; gap: 10px; justify-content: center;">
-        <n-button type="primary" @click="playPause">{{ isPlaying ? '暂停' : '播放伴奏' }}</n-button>
-        <n-button type="error" @click="toggleRecording">{{ isRecording ? '停止录音' : '开始录音' }}</n-button>
-        <n-button v-if="userStore.isLoggedIn" type="info" @click="saveRecording" :disabled="!recordedBlob">保存录音</n-button>
-        <n-button v-else type="info" disabled title="登录后可保存">保存录音 (需登录)</n-button>
-      </div>
-      <div v-if="recordedAudioUrl" style="margin-top: 10px; text-align: center;">
-        <audio :src="recordedAudioUrl" controls></audio>
+    <!-- Bottom: Spectral Console -->
+    <div class="spectral-console">
+      <!-- WaveSurfer Container (Hidden or integrated) -->
+      <div id="waveform" class="waveform-hidden"></div>
+      
+      <canvas ref="spectrumCanvas" class="spectrum-canvas"></canvas>
+      
+      <!-- Floating Controls -->
+      <div class="console-controls">
+         <div class="control-group left">
+            <div class="track-info" v-if="score">
+               <div class="track-title">{{ score.title }}</div>
+               <div class="track-meta">{{ score.song_key }} / {{ score.flute_key }}</div>
+            </div>
+         </div>
+         
+         <div class="control-group center">
+            <button class="console-btn play-btn" @click="playPause">
+              <span class="icon">{{ isPlaying ? '⏸' : '▶' }}</span>
+            </button>
+            
+            <button class="console-btn record-btn" :class="{ 'is-recording': isRecording }" @click="toggleRecording">
+               <div class="record-inner"></div>
+            </button>
+            
+            <button class="console-btn save-btn" @click="saveRecording" :disabled="!recordedBlob" title="Save Recording">
+               <span>💾</span>
+            </button>
+         </div>
+         
+         <div class="control-group right">
+            <!-- Volume or other controls could go here -->
+         </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import WaveSurfer from 'wavesurfer.js'
 import * as Tone from 'tone'
-import { NButton, useMessage } from 'naive-ui'
+import { useMessage, NSlider } from 'naive-ui'
 import { useUserStore } from '../stores/user'
 
 const route = useRoute()
@@ -55,8 +99,32 @@ const recordedAudioUrl = ref(null)
 const message = useMessage()
 const userStore = useUserStore()
 
+// Zoom & Pan State
+const scale = ref(1)
+const translateX = ref(0)
+const translateY = ref(0)
+const isDragging = ref(false)
+const startX = ref(0)
+const startY = ref(0)
+
+// Metronome State
+const bpm = ref(90)
+const isMetronomeOn = ref(false)
+let metronomeLoop = null
+
+// Spectrum State
+const spectrumCanvas = ref(null)
+let audioContext = null
+let analyser = null
+let dataArray = null
+let animationId = null
 let mediaRecorder = null
 let audioChunks = []
+
+const scoreStyle = computed(() => ({
+  transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
+  transition: isDragging.value ? 'none' : 'transform 0.1s ease-out'
+}))
 
 const fetchScore = async () => {
   try {
@@ -68,22 +136,70 @@ const fetchScore = async () => {
   }
 }
 
-const getScoreImageUrl = (path) => {
-  return `/${path}`
+const getScoreImageUrl = (path) => `/${path}`
+const getAudioUrl = (path) => `/${path}`
+
+// --- Zoom & Pan Logic ---
+const handleZoom = (e) => {
+  const zoomSpeed = 0.1
+  const newScale = scale.value + (e.deltaY > 0 ? -zoomSpeed : zoomSpeed)
+  scale.value = Math.min(Math.max(0.5, newScale), 5)
 }
 
-const getAudioUrl = (path) => {
-  return `/${path}`
+const startDrag = (e) => {
+  isDragging.value = true
+  startX.value = e.clientX - translateX.value
+  startY.value = e.clientY - translateY.value
 }
 
+const onDrag = (e) => {
+  if (!isDragging.value) return
+  translateX.value = e.clientX - startX.value
+  translateY.value = e.clientY - startY.value
+}
+
+const stopDrag = () => {
+  isDragging.value = false
+}
+
+// --- Metronome Logic ---
+const toggleMetronome = async () => {
+  if (isMetronomeOn.value) {
+    Tone.Transport.stop()
+    isMetronomeOn.value = false
+  } else {
+    await Tone.start()
+    Tone.Transport.bpm.value = bpm.value
+    
+    if (!metronomeLoop) {
+      const synth = new Tone.MembraneSynth().toDestination()
+      metronomeLoop = new Tone.Loop((time) => {
+        synth.triggerAttackRelease("C2", "8n", time)
+      }, "4n")
+      metronomeLoop.start(0)
+    }
+    
+    Tone.Transport.start()
+    isMetronomeOn.value = true
+  }
+}
+
+watch(bpm, (newBpm) => {
+  if (isMetronomeOn.value) {
+    Tone.Transport.bpm.value = newBpm
+  }
+})
+
+// --- Audio & Spectrum Logic ---
 const initWaveSurfer = (audioPath) => {
   if (wavesurfer.value) return
   
   wavesurfer.value = WaveSurfer.create({
     container: '#waveform',
-    waveColor: 'violet',
-    progressColor: 'purple',
-    height: 80,
+    waveColor: '#50C878',
+    progressColor: '#2E8B57',
+    height: 0, // Hidden visually, but playing
+    barWidth: 2,
   })
   
   wavesurfer.value.load(getAudioUrl(audioPath))
@@ -114,12 +230,6 @@ const toggleRecording = async () => {
   }
 }
 
-const spectrumCanvas = ref(null)
-let audioContext = null
-let analyser = null
-let dataArray = null
-let animationId = null
-
 const startRecording = async () => {
   try {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -129,7 +239,7 @@ const startRecording = async () => {
     mediaRecorder = new MediaRecorder(stream)
     audioChunks = []
     
-    // Spectrum Visualization Setup
+    // Spectrum Setup
     audioContext = new (window.AudioContext || window.webkitAudioContext)()
     analyser = audioContext.createAnalyser()
     const source = audioContext.createMediaStreamSource(stream)
@@ -154,25 +264,18 @@ const startRecording = async () => {
     mediaRecorder.start()
     isRecording.value = true
     
-    // Auto play backing track
     if (wavesurfer.value && !wavesurfer.value.isPlaying()) {
       wavesurfer.value.play()
       isPlaying.value = true
     }
   } catch (error) {
-    console.error('Microphone access error:', error)
+    console.error('Microphone error:', error)
     if (error.name === 'NotAllowedError') {
-      message.error('麦克风权限被拒绝，请在浏览器设置中允许访问')
-    } else if (error.name === 'NotFoundError') {
-      message.error('未找到麦克风设备')
-    } else if (error.name === 'NotReadableError') {
-      message.error('麦克风被占用或无法访问')
-    } else if (error.name === 'SecurityError' || (window.isSecureContext === false && window.location.hostname !== 'localhost')) {
-      message.error('浏览器安全策略限制：非HTTPS环境可能无法访问麦克风')
+      message.error('麦克风权限被拒绝')
     } else if (error.message === 'BrowserAPIUnsupported') {
-      message.error('当前浏览器环境不支持录音API (可能是因为未使用HTTPS)')
+      message.error('浏览器不支持录音API (请使用HTTPS或Localhost)')
     } else {
-      message.error(`无法访问麦克风: ${error.name} - ${error.message}`)
+      message.error('无法访问麦克风')
     }
   }
 }
@@ -181,7 +284,6 @@ const drawSpectrum = () => {
   if (!spectrumCanvas.value) return
   
   animationId = requestAnimationFrame(drawSpectrum)
-  
   analyser.getByteFrequencyData(dataArray)
   
   const canvas = spectrumCanvas.value
@@ -189,27 +291,32 @@ const drawSpectrum = () => {
   const width = canvas.width
   const height = canvas.height
   
-  ctx.fillStyle = 'rgb(0, 0, 0)'
+  // Clear with transparent or dark background
+  ctx.fillStyle = '#121214'
   ctx.fillRect(0, 0, width, height)
   
   const barWidth = (width / dataArray.length) * 2.5
   let barHeight
   let x = 0
   
+  // Gradient: Deep Cyan to Bright White
+  const gradient = ctx.createLinearGradient(0, height, 0, 0)
+  gradient.addColorStop(0, '#008B8B') // Deep Cyan
+  gradient.addColorStop(0.5, '#00FFFF') // Cyan
+  gradient.addColorStop(1, '#FFFFFF') // White
+  
+  ctx.fillStyle = gradient
+  
   for(let i = 0; i < dataArray.length; i++) {
-    barHeight = dataArray[i] / 2
+    barHeight = dataArray[i] / 255 * height
     
-    ctx.fillStyle = `rgb(${barHeight + 100}, 50, 50)`
     ctx.fillRect(x, height - barHeight, barWidth, barHeight)
-    
     x += barWidth + 1
   }
 }
 
 const stopSpectrum = () => {
-  if (animationId) {
-    cancelAnimationFrame(animationId)
-  }
+  if (animationId) cancelAnimationFrame(animationId)
   if (audioContext) {
     audioContext.close()
     audioContext = null
@@ -221,7 +328,6 @@ const stopRecording = () => {
     mediaRecorder.stop()
     isRecording.value = false
     
-    // Stop backing track
     if (wavesurfer.value) {
       wavesurfer.value.pause()
       isPlaying.value = false
@@ -251,12 +357,275 @@ const saveRecording = async () => {
 
 onMounted(() => {
   fetchScore()
+  // Resize canvas
+  if (spectrumCanvas.value) {
+    spectrumCanvas.value.width = spectrumCanvas.value.offsetWidth
+    spectrumCanvas.value.height = spectrumCanvas.value.offsetHeight
+  }
+  window.addEventListener('resize', () => {
+    if (spectrumCanvas.value) {
+      spectrumCanvas.value.width = spectrumCanvas.value.offsetWidth
+      spectrumCanvas.value.height = spectrumCanvas.value.offsetHeight
+    }
+  })
 })
 
 onUnmounted(() => {
-  if (wavesurfer.value) {
-    wavesurfer.value.destroy()
-  }
+  if (wavesurfer.value) wavesurfer.value.destroy()
   stopSpectrum()
+  if (metronomeLoop) {
+    metronomeLoop.dispose()
+    Tone.Transport.stop()
+  }
 })
 </script>
+
+<style scoped>
+.workbench-container {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  grid-template-rows: 1fr 200px;
+  height: calc(100vh - 64px); /* Adjust for header */
+  background-color: #121214;
+  color: #E0E0E0;
+  overflow: hidden;
+}
+
+/* Center Stage */
+.score-stage {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+  background-color: #1A1A1D;
+  margin: 16px;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+  cursor: grab;
+}
+
+.score-stage:active {
+  cursor: grabbing;
+}
+
+.score-wrapper {
+  transform-origin: center;
+}
+
+.score-image {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  background-color: #F5F5F0; /* Paper texture color */
+}
+
+/* Side Rack */
+.side-rack {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  background-color: #18181B;
+  border-left: 1px solid #333;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  z-index: 10;
+}
+
+.rack-module {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.module-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #666;
+  letter-spacing: 1px;
+}
+
+.bpm-display {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 2.5rem;
+  color: #50C878;
+  font-weight: bold;
+}
+
+.bpm-label {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.rack-btn {
+  background: #333;
+  border: none;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.rack-btn.primary {
+  background: #50C878;
+  color: #000;
+}
+
+.rack-btn:hover {
+  filter: brightness(1.1);
+}
+
+.tuner-notes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+
+.note-btn {
+  background: #333;
+  border: 1px solid #444;
+  color: #aaa;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.note-btn:hover {
+  background: #444;
+  color: #fff;
+}
+
+/* Spectral Console */
+.spectral-console {
+  grid-column: 1 / 2;
+  grid-row: 2 / 3;
+  background-color: #121214;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #333;
+}
+
+.spectrum-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.console-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  background: rgba(18, 18, 20, 0.8);
+  backdrop-filter: blur(10px);
+  padding: 12px 32px;
+  border-radius: 32px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.console-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s;
+}
+
+.console-btn:active {
+  transform: scale(0.95);
+}
+
+.play-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #333;
+  color: #50C878;
+  font-size: 24px;
+}
+
+.record-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  padding: 4px;
+}
+
+.record-inner {
+  width: 100%;
+  height: 100%;
+  background-color: #FF3333;
+  border-radius: 50%;
+  transition: all 0.3s;
+}
+
+.record-btn.is-recording .record-inner {
+  border-radius: 4px;
+  transform: scale(0.5);
+  box-shadow: 0 0 15px #FF3333;
+  animation: breathe 2s infinite;
+}
+
+.save-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #333;
+  font-size: 20px;
+}
+
+.save-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.track-info {
+  color: #fff;
+  text-align: left;
+}
+
+.track-title {
+  font-weight: bold;
+  font-size: 1rem;
+}
+
+.track-meta {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+@keyframes breathe {
+  0% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); }
+  50% { box-shadow: 0 0 25px rgba(255, 51, 51, 0.8); }
+  100% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); }
+}
+
+.waveform-hidden {
+  display: none;
+}
+</style>
