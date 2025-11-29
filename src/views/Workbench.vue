@@ -155,6 +155,7 @@ const isMetronomeOn = ref(false)
 let metronomeLoop = null
 const lastBeatTime = ref(0) // For spectrogram markers
 const dominantNote = ref('-')
+const dominantFreq = ref(0)
 
 // Spectrum & Spectrogram State
 const spectrumCanvas = ref(null)
