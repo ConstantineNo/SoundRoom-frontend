@@ -117,7 +117,12 @@ const drawSpectrogram = () => {
   if (!spectrogramCanvas.value || !props.analyser) return
   
   animationId = requestAnimationFrame(drawSpectrogram)
-  props.analyser.getByteFrequencyData(props.dataArray)
+  
+  if (props.analyser && props.dataArray) {
+    props.analyser.getByteFrequencyData(props.dataArray)
+  } else {
+    return // Skip drawing if no data
+  }
   
   const canvas = spectrogramCanvas.value
   const ctx = canvas.getContext('2d')
@@ -304,9 +309,11 @@ const resizeCanvases = () => {
 
 onMounted(() => {
   initColormap()
-  resizeCanvases()
-  window.addEventListener('resize', resizeCanvases)
-  drawSpectrogram()
+  // Ensure canvases are sized before starting loop
+  nextTick(() => {
+    resizeCanvases()
+    drawSpectrogram()
+  })
 })
 
 onUnmounted(() => {
