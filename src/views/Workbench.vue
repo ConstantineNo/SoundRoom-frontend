@@ -1,15 +1,57 @@
 <template>
-  <div class="workbench-container">
-    <!-- Center Stage: Score -->
-    <div class="score-stage" ref="scoreContainer" @wheel.prevent="handleZoom" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag">
-      <div v-if="score" class="score-wrapper" :style="scoreStyle">
-        <img :src="getScoreImageUrl(score.image_path)" class="score-image" draggable="false" />
+  <div class="workbench-container" :class="{ 'rack-collapsed': isRackCollapsed }">
+    <!-- Header / Toolbar (Optional, for view switching) -->
+    <div class="stage-toolbar">
+       <div class="view-switcher">
+          <button 
+            class="switch-btn" 
+            :class="{ active: viewMode === 'score' }"
+            @click="viewMode = 'score'">
+            🎼 曲谱
+          </button>
+          <button 
+            class="switch-btn" 
+            :class="{ active: viewMode === 'analysis' }"
+            @click="viewMode = 'analysis'">
+            📊 频谱分析
+          </button>
+       </div>
+       <button class="rack-toggle-btn" @click="toggleRack">
+          {{ isRackCollapsed ? '🛠️ 打开工具' : '➡️ 收起工具' }}
+       </button>
+    </div>
+
+    <!-- Center Stage -->
+    <div class="score-stage" ref="scoreContainer" 
+         @wheel.prevent="viewMode === 'score' ? handleZoom($event) : null" 
+         @mousedown="viewMode === 'score' ? startDrag($event) : null" 
+         @mousemove="viewMode === 'score' ? onDrag($event) : null" 
+         @mouseup="stopDrag" 
+         @mouseleave="stopDrag">
+      
+      <!-- Mode: Score -->
+      <div v-if="viewMode === 'score'" class="stage-content score-mode">
+        <div v-if="score" class="score-wrapper" :style="scoreStyle">
+          <img :src="getScoreImageUrl(score.image_path)" class="score-image" draggable="false" />
+        </div>
+        <div v-else class="loading-text">Loading score...</div>
       </div>
-      <div v-else class="loading-text">Loading score...</div>
+
+      <!-- Mode: Analysis (Large Spectrum) -->
+      <div v-show="viewMode === 'analysis'" class="stage-content analysis-mode">
+         <canvas ref="analysisCanvas" class="analysis-canvas"></canvas>
+         <div class="analysis-overlay">
+            <div class="analysis-stat">
+               <span class="label">Dominant Freq</span>
+               <span class="value">{{ dominantFreq }} Hz</span>
+            </div>
+            <!-- Add more stats if needed -->
+         </div>
+      </div>
     </div>
 
     <!-- Right: Side Rack -->
-    <div class="side-rack">
+    <div class="side-rack" :class="{ collapsed: isRackCollapsed }">
       <div class="rack-module metronome">
         <div class="module-header">
           <div class="module-title">METRONOME</div>
@@ -26,7 +68,6 @@
         </div>
       </div>
       
-      <!-- Tuner Module (Placeholder for visual balance) -->
       <div class="rack-module tuner">
         <div class="module-title">TUNER</div>
         <div class="tuner-notes">
@@ -43,12 +84,9 @@
 
     <!-- Bottom: Spectral Console -->
     <div class="spectral-console">
-      <!-- WaveSurfer Container (Hidden or integrated) -->
       <div id="waveform" class="waveform-hidden"></div>
-      
       <canvas ref="spectrumCanvas" class="spectrum-canvas"></canvas>
       
-      <!-- Floating Controls -->
       <div class="console-controls">
          <div class="control-group left">
             <div class="track-info" v-if="score">
@@ -71,16 +109,14 @@
             </button>
          </div>
          
-         <div class="control-group right">
-            <!-- Volume or other controls could go here -->
-         </div>
+         <div class="control-group right"></div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import WaveSurfer from 'wavesurfer.js'
@@ -99,6 +135,11 @@ const recordedAudioUrl = ref(null)
 const message = useMessage()
 const userStore = useUserStore()
 
+// UI State
+const isRackCollapsed = ref(window.innerWidth < 768) // Default collapsed on mobile
+const viewMode = ref('score') // 'score' | 'analysis'
+const dominantFreq = ref(0)
+
 // Zoom & Pan State
 const scale = ref(1)
 const translateX = ref(0)
@@ -114,6 +155,7 @@ let metronomeLoop = null
 
 // Spectrum State
 const spectrumCanvas = ref(null)
+const analysisCanvas = ref(null)
 let audioContext = null
 let analyser = null
 let dataArray = null
@@ -138,6 +180,11 @@ const fetchScore = async () => {
 
 const getScoreImageUrl = (path) => `/${path}`
 const getAudioUrl = (path) => `/${path}`
+
+// --- UI Logic ---
+const toggleRack = () => {
+  isRackCollapsed.value = !isRackCollapsed.value
+}
 
 // --- Zoom & Pan Logic ---
 const handleZoom = (e) => {
@@ -198,7 +245,7 @@ const initWaveSurfer = (audioPath) => {
     container: '#waveform',
     waveColor: '#50C878',
     progressColor: '#2E8B57',
-    height: 0, // Hidden visually, but playing
+    height: 0, 
     barWidth: 2,
   })
   
@@ -281,37 +328,79 @@ const startRecording = async () => {
 }
 
 const drawSpectrum = () => {
-  if (!spectrumCanvas.value) return
+  if (!spectrumCanvas.value && !analysisCanvas.value) return
   
   animationId = requestAnimationFrame(drawSpectrum)
   analyser.getByteFrequencyData(dataArray)
   
-  const canvas = spectrumCanvas.value
-  const ctx = canvas.getContext('2d')
-  const width = canvas.width
-  const height = canvas.height
+  // Calculate Dominant Frequency (Simple Peak Detection)
+  let maxVal = -1
+  let maxIndex = -1
+  for (let i = 0; i < dataArray.length; i++) {
+    if (dataArray[i] > maxVal) {
+      maxVal = dataArray[i]
+      maxIndex = i
+    }
+  }
+  const nyquist = audioContext.sampleRate / 2
+  dominantFreq.value = Math.round((maxIndex / dataArray.length) * nyquist)
   
-  // Clear with transparent or dark background
-  ctx.fillStyle = '#121214'
-  ctx.fillRect(0, 0, width, height)
-  
-  const barWidth = (width / dataArray.length) * 2.5
-  let barHeight
-  let x = 0
-  
-  // Gradient: Deep Cyan to Bright White
-  const gradient = ctx.createLinearGradient(0, height, 0, 0)
-  gradient.addColorStop(0, '#008B8B') // Deep Cyan
-  gradient.addColorStop(0.5, '#00FFFF') // Cyan
-  gradient.addColorStop(1, '#FFFFFF') // White
-  
-  ctx.fillStyle = gradient
-  
-  for(let i = 0; i < dataArray.length; i++) {
-    barHeight = dataArray[i] / 255 * height
+  // Draw Bottom Spectrum
+  if (spectrumCanvas.value) {
+    const canvas = spectrumCanvas.value
+    const ctx = canvas.getContext('2d')
+    const width = canvas.width
+    const height = canvas.height
     
-    ctx.fillRect(x, height - barHeight, barWidth, barHeight)
-    x += barWidth + 1
+    ctx.fillStyle = '#121214'
+    ctx.fillRect(0, 0, width, height)
+    
+    const barWidth = (width / dataArray.length) * 2.5
+    let barHeight
+    let x = 0
+    
+    const gradient = ctx.createLinearGradient(0, height, 0, 0)
+    gradient.addColorStop(0, '#008B8B') 
+    gradient.addColorStop(0.5, '#00FFFF') 
+    gradient.addColorStop(1, '#FFFFFF') 
+    
+    ctx.fillStyle = gradient
+    
+    for(let i = 0; i < dataArray.length; i++) {
+      barHeight = dataArray[i] / 255 * height
+      ctx.fillRect(x, height - barHeight, barWidth, barHeight)
+      x += barWidth + 1
+    }
+  }
+
+  // Draw Center Analysis (if visible)
+  if (viewMode.value === 'analysis' && analysisCanvas.value) {
+     const canvas = analysisCanvas.value
+     const ctx = canvas.getContext('2d')
+     const width = canvas.width
+     const height = canvas.height
+     
+     ctx.fillStyle = '#1A1A1D'
+     ctx.fillRect(0, 0, width, height)
+     
+     // Draw a more detailed line graph
+     ctx.lineWidth = 2
+     ctx.strokeStyle = '#50C878'
+     ctx.beginPath()
+     
+     const sliceWidth = width * 1.0 / dataArray.length
+     let x = 0
+     
+     for(let i = 0; i < dataArray.length; i++) {
+       const v = dataArray[i] / 128.0
+       const y = height - (v * height / 2)
+       
+       if(i === 0) ctx.moveTo(x, y)
+       else ctx.lineTo(x, y)
+       
+       x += sliceWidth
+     }
+     ctx.stroke()
   }
 }
 
@@ -355,18 +444,23 @@ const saveRecording = async () => {
   }
 }
 
-onMounted(() => {
-  fetchScore()
-  // Resize canvas
+const resizeCanvases = () => {
   if (spectrumCanvas.value) {
     spectrumCanvas.value.width = spectrumCanvas.value.offsetWidth
     spectrumCanvas.value.height = spectrumCanvas.value.offsetHeight
   }
+  if (analysisCanvas.value) {
+    analysisCanvas.value.width = analysisCanvas.value.offsetWidth
+    analysisCanvas.value.height = analysisCanvas.value.offsetHeight
+  }
+}
+
+onMounted(() => {
+  fetchScore()
+  resizeCanvases()
   window.addEventListener('resize', () => {
-    if (spectrumCanvas.value) {
-      spectrumCanvas.value.width = spectrumCanvas.value.offsetWidth
-      spectrumCanvas.value.height = spectrumCanvas.value.offsetHeight
-    }
+    isRackCollapsed.value = window.innerWidth < 768
+    resizeCanvases()
   })
 })
 
@@ -378,23 +472,75 @@ onUnmounted(() => {
     Tone.Transport.stop()
   }
 })
+
+watch(viewMode, () => {
+  nextTick(() => {
+    resizeCanvases()
+  })
+})
 </script>
 
 <style scoped>
 .workbench-container {
   display: grid;
   grid-template-columns: 1fr 280px;
-  grid-template-rows: 1fr 200px;
-  height: calc(100vh - 64px); /* Adjust for header */
+  grid-template-rows: 48px 1fr 200px; /* Added header row */
+  height: calc(100vh - 64px);
   background-color: #121214;
   color: #E0E0E0;
   overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.workbench-container.rack-collapsed {
+  grid-template-columns: 1fr 0px; /* Collapse side rack */
+}
+
+/* Toolbar */
+.stage-toolbar {
+  grid-column: 1 / 3;
+  grid-row: 1 / 2;
+  background-color: #18181B;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid #333;
+}
+
+.view-switcher {
+  display: flex;
+  gap: 8px;
+}
+
+.switch-btn {
+  background: transparent;
+  border: 1px solid #333;
+  color: #888;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.switch-btn.active {
+  background: #333;
+  color: #fff;
+  border-color: #555;
+}
+
+.rack-toggle-btn {
+  background: transparent;
+  border: none;
+  color: #50C878;
+  cursor: pointer;
+  font-weight: bold;
 }
 
 /* Center Stage */
 .score-stage {
   grid-column: 1 / 2;
-  grid-row: 1 / 2;
+  grid-row: 2 / 3;
   background-color: #1A1A1D;
   margin: 16px;
   border-radius: 12px;
@@ -404,10 +550,20 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
-  cursor: grab;
 }
 
-.score-stage:active {
+.stage-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.score-mode {
+  cursor: grab;
+}
+.score-mode:active {
   cursor: grabbing;
 }
 
@@ -420,13 +576,37 @@ onUnmounted(() => {
   max-height: 100%;
   display: block;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  background-color: #F5F5F0; /* Paper texture color */
+  background-color: #F5F5F0;
+}
+
+.analysis-mode {
+  position: relative;
+}
+
+.analysis-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.analysis-overlay {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(0,0,0,0.5);
+  padding: 8px 16px;
+  border-radius: 8px;
+}
+
+.analysis-stat {
+  font-family: 'Roboto Mono', monospace;
+  color: #50C878;
+  font-size: 1.2rem;
 }
 
 /* Side Rack */
 .side-rack {
   grid-column: 2 / 3;
-  grid-row: 1 / 3;
+  grid-row: 2 / 3; /* Adjusted row */
   background-color: #18181B;
   border-left: 1px solid #333;
   padding: 20px;
@@ -434,8 +614,19 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 24px;
   z-index: 10;
+  overflow-y: auto;
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
+.side-rack.collapsed {
+  transform: translateX(100%);
+  opacity: 0;
+  padding: 0;
+  width: 0;
+  border: none;
+}
+
+/* Modules (Same as before) */
 .rack-module {
   background: #222;
   border: 1px solid #333;
@@ -445,72 +636,23 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0; /* Prevent shrinking */
 }
 
-.module-title {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: #666;
-  letter-spacing: 1px;
-}
-
-.bpm-display {
-  font-family: 'Roboto Mono', monospace;
-  font-size: 2.5rem;
-  color: #50C878;
-  font-weight: bold;
-}
-
-.bpm-label {
-  font-size: 0.8rem;
-  color: #666;
-}
-
-.rack-btn {
-  background: #333;
-  border: none;
-  color: #fff;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: bold;
-  transition: all 0.2s;
-}
-
-.rack-btn.primary {
-  background: #50C878;
-  color: #000;
-}
-
-.rack-btn:hover {
-  filter: brightness(1.1);
-}
-
-.tuner-notes {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  width: 100%;
-}
-
-.note-btn {
-  background: #333;
-  border: 1px solid #444;
-  color: #aaa;
-  padding: 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.note-btn:hover {
-  background: #444;
-  color: #fff;
-}
+.module-title { font-size: 0.8rem; font-weight: 700; color: #666; letter-spacing: 1px; }
+.bpm-display { font-family: 'Roboto Mono', monospace; font-size: 2.5rem; color: #50C878; font-weight: bold; }
+.bpm-label { font-size: 0.8rem; color: #666; }
+.rack-btn { background: #333; border: none; color: #fff; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+.rack-btn.primary { background: #50C878; color: #000; }
+.rack-btn:hover { filter: brightness(1.1); }
+.tuner-notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; }
+.note-btn { background: #333; border: 1px solid #444; color: #aaa; padding: 8px; border-radius: 4px; cursor: pointer; }
+.note-btn:hover { background: #444; color: #fff; }
 
 /* Spectral Console */
 .spectral-console {
-  grid-column: 1 / 2;
-  grid-row: 2 / 3;
+  grid-column: 1 / 3; /* Span full width when rack is collapsed, but grid handles it */
+  grid-row: 3 / 4;
   background-color: #121214;
   position: relative;
   display: flex;
@@ -518,11 +660,7 @@ onUnmounted(() => {
   border-top: 1px solid #333;
 }
 
-.spectrum-canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
+.spectrum-canvas { width: 100%; height: 100%; display: block; }
 
 .console-controls {
   position: absolute;
@@ -537,95 +675,32 @@ onUnmounted(() => {
   padding: 12px 32px;
   border-radius: 32px;
   border: 1px solid rgba(255,255,255,0.1);
+  z-index: 20;
 }
 
-.control-group {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
+.control-group { display: flex; align-items: center; gap: 16px; }
+.console-btn { background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.1s; }
+.console-btn:active { transform: scale(0.95); }
+.play-btn { width: 48px; height: 48px; border-radius: 50%; background: #333; color: #50C878; font-size: 24px; }
+.record-btn { width: 64px; height: 64px; border-radius: 50%; border: 2px solid #fff; padding: 4px; }
+.record-inner { width: 100%; height: 100%; background-color: #FF3333; border-radius: 50%; transition: all 0.3s; }
+.record-btn.is-recording .record-inner { border-radius: 4px; transform: scale(0.5); box-shadow: 0 0 15px #FF3333; animation: breathe 2s infinite; }
+.save-btn { width: 40px; height: 40px; border-radius: 50%; background: #333; font-size: 20px; }
+.save-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.track-info { color: #fff; text-align: left; }
+.track-title { font-weight: bold; font-size: 1rem; }
+.track-meta { font-size: 0.8rem; color: #888; }
+@keyframes breathe { 0% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); } 50% { box-shadow: 0 0 25px rgba(255, 51, 51, 0.8); } 100% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); } }
+.waveform-hidden { display: none; }
 
-.console-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.1s;
-}
-
-.console-btn:active {
-  transform: scale(0.95);
-}
-
-.play-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: #333;
-  color: #50C878;
-  font-size: 24px;
-}
-
-.record-btn {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  border: 2px solid #fff;
-  padding: 4px;
-}
-
-.record-inner {
-  width: 100%;
-  height: 100%;
-  background-color: #FF3333;
-  border-radius: 50%;
-  transition: all 0.3s;
-}
-
-.record-btn.is-recording .record-inner {
-  border-radius: 4px;
-  transform: scale(0.5);
-  box-shadow: 0 0 15px #FF3333;
-  animation: breathe 2s infinite;
-}
-
-.save-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #333;
-  font-size: 20px;
-}
-
-.save-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.track-info {
-  color: #fff;
-  text-align: left;
-}
-
-.track-title {
-  font-weight: bold;
-  font-size: 1rem;
-}
-
-.track-meta {
-  font-size: 0.8rem;
-  color: #888;
-}
-
-@keyframes breathe {
-  0% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); }
-  50% { box-shadow: 0 0 25px rgba(255, 51, 51, 0.8); }
-  100% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); }
-}
-
-.waveform-hidden {
-  display: none;
+/* Mobile Adjustments */
+@media (max-width: 768px) {
+  .console-controls {
+    width: 90%;
+    gap: 10px;
+    padding: 8px 16px;
+    justify-content: space-between;
+  }
+  .track-info { display: none; } /* Hide track info on small screens */
 }
 </style>
