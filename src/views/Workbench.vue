@@ -21,10 +21,12 @@
     <!-- Bottom: Audio Console -->
     <div style="height: 150px; background: #222; padding: 10px; color: white;">
       <div id="waveform" style="margin-bottom: 10px;"></div>
+      <canvas ref="spectrumCanvas" width="1024" height="100" style="width: 100%; height: 100px; background: #000; display: block; margin-bottom: 10px;"></canvas>
       <div style="display: flex; gap: 10px; justify-content: center;">
         <n-button type="primary" @click="playPause">{{ isPlaying ? '暂停' : '播放伴奏' }}</n-button>
         <n-button type="error" @click="toggleRecording">{{ isRecording ? '停止录音' : '开始录音' }}</n-button>
-        <n-button type="info" @click="saveRecording" :disabled="!recordedBlob">保存录音</n-button>
+        <n-button v-if="userStore.isLoggedIn" type="info" @click="saveRecording" :disabled="!recordedBlob">保存录音</n-button>
+        <n-button v-else type="info" disabled title="登录后可保存">保存录音 (需登录)</n-button>
       </div>
       <div v-if="recordedAudioUrl" style="margin-top: 10px; text-align: center;">
         <audio :src="recordedAudioUrl" controls></audio>
@@ -67,11 +69,11 @@ const fetchScore = async () => {
 }
 
 const getScoreImageUrl = (path) => {
-  return `http://localhost:8000/${path}`
+  return `/${path}`
 }
 
 const getAudioUrl = (path) => {
-  return `http://localhost:8000/${path}`
+  return `/${path}`
 }
 
 const initWaveSurfer = (audioPath) => {
@@ -112,12 +114,30 @@ const toggleRecording = async () => {
   }
 }
 
+const spectrumCanvas = ref(null)
+let audioContext = null
+let analyser = null
+let dataArray = null
+let animationId = null
+
 const startRecording = async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     mediaRecorder = new MediaRecorder(stream)
     audioChunks = []
     
+    // Spectrum Visualization Setup
+    audioContext = new (window.AudioContext || window.webkitAudioContext)()
+    analyser = audioContext.createAnalyser()
+    const source = audioContext.createMediaStreamSource(stream)
+    source.connect(analyser)
+    
+    analyser.fftSize = 2048
+    const bufferLength = analyser.frequencyBinCount
+    dataArray = new Uint8Array(bufferLength)
+    
+    drawSpectrum()
+
     mediaRecorder.ondataavailable = (event) => {
       audioChunks.push(event.data)
     }
@@ -125,6 +145,7 @@ const startRecording = async () => {
     mediaRecorder.onstop = () => {
       recordedBlob.value = new Blob(audioChunks, { type: 'audio/webm' })
       recordedAudioUrl.value = URL.createObjectURL(recordedBlob.value)
+      stopSpectrum()
     }
     
     mediaRecorder.start()
@@ -136,7 +157,47 @@ const startRecording = async () => {
       isPlaying.value = true
     }
   } catch (error) {
-    message.error('无法访问麦克风')
+    console.error(error)
+    message.error('无法访问麦克风，请确保使用HTTPS或Localhost访问')
+  }
+}
+
+const drawSpectrum = () => {
+  if (!spectrumCanvas.value) return
+  
+  animationId = requestAnimationFrame(drawSpectrum)
+  
+  analyser.getByteFrequencyData(dataArray)
+  
+  const canvas = spectrumCanvas.value
+  const ctx = canvas.getContext('2d')
+  const width = canvas.width
+  const height = canvas.height
+  
+  ctx.fillStyle = 'rgb(0, 0, 0)'
+  ctx.fillRect(0, 0, width, height)
+  
+  const barWidth = (width / dataArray.length) * 2.5
+  let barHeight
+  let x = 0
+  
+  for(let i = 0; i < dataArray.length; i++) {
+    barHeight = dataArray[i] / 2
+    
+    ctx.fillStyle = `rgb(${barHeight + 100}, 50, 50)`
+    ctx.fillRect(x, height - barHeight, barWidth, barHeight)
+    
+    x += barWidth + 1
+  }
+}
+
+const stopSpectrum = () => {
+  if (animationId) {
+    cancelAnimationFrame(animationId)
+  }
+  if (audioContext) {
+    audioContext.close()
+    audioContext = null
   }
 }
 
@@ -181,5 +242,6 @@ onUnmounted(() => {
   if (wavesurfer.value) {
     wavesurfer.value.destroy()
   }
+  stopSpectrum()
 })
 </script>

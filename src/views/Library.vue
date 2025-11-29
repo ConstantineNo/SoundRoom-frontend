@@ -2,7 +2,7 @@
   <div>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h2>曲谱库</h2>
-      <n-button type="primary" @click="showUploadModal = true">上传曲谱</n-button>
+      <n-button v-if="userStore.isLoggedIn" type="primary" @click="showUploadModal = true">上传曲谱</n-button>
     </div>
 
     <n-grid x-gap="12" y-gap="12" cols="1 s:2 m:3 l:4" responsive="screen">
@@ -16,7 +16,7 @@
             <n-tag>笛子: {{ score.flute_key }}</n-tag>
             <n-tag>指法: {{ score.fingering }}</n-tag>
             <n-button block secondary type="info" @click="goToPractice(score.id)">进入练习</n-button>
-            <n-button block secondary @click="addToPlaylist(score.id)">加入列表</n-button>
+            <n-button v-if="userStore.isLoggedIn" block secondary @click="addToPlaylist(score.id)">加入列表</n-button>
           </n-space>
         </n-card>
       </n-grid-item>
@@ -89,8 +89,8 @@ const fetchScores = async () => {
 
 const getScoreImageUrl = (path) => {
   // path is like "uploads/img_filename.jpg"
-  // We mounted /uploads in backend
-  return `http://localhost:8000/${path}`
+  // Use relative path to leverage Vite proxy
+  return `/${path}`
 }
 
 const handleImageChange = (event) => {

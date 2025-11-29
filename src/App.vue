@@ -6,11 +6,17 @@
           <n-layout style="height: 100vh">
             <n-layout-header bordered style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
               <div style="font-size: 1.2rem; font-weight: bold;">竹笛智能练习平台</div>
-              <n-space>
+              <n-space align="center">
                 <router-link to="/library"><n-button text>曲谱库</n-button></router-link>
-                <router-link to="/playlist"><n-button text>播放列表</n-button></router-link>
-                <router-link to="/login"><n-button text>登录</n-button></router-link>
-                <router-link to="/register"><n-button text>注册</n-button></router-link>
+                <router-link v-if="userStore.isLoggedIn" to="/playlist"><n-button text>播放列表</n-button></router-link>
+                <div v-if="userStore.isLoggedIn">
+                  <span style="margin-right: 10px;">{{ userStore.username }}</span>
+                  <n-button text @click="handleLogout">退出</n-button>
+                </div>
+                <div v-else>
+                  <router-link to="/login"><n-button text>登录</n-button></router-link>
+                  <router-link to="/register"><n-button text>注册</n-button></router-link>
+                </div>
               </n-space>
             </n-layout-header>
             <n-layout-content content-style="padding: 24px;">
@@ -35,6 +41,16 @@ import {
   NSpace, 
   NButton 
 } from 'naive-ui'
+import { useUserStore } from './stores/user'
+import { useRouter } from 'vue-router'
+
+const userStore = useUserStore()
+const router = useRouter()
+
+const handleLogout = () => {
+  userStore.logout()
+  router.push('/login')
+}
 </script>
 
 <style>
