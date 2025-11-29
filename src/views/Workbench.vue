@@ -42,7 +42,8 @@
          <canvas ref="spectrogramCanvas" class="spectrogram-canvas"></canvas>
          <div class="analysis-overlay">
             <div class="analysis-stat">
-               <span class="label">Spectrogram</span>
+               <span class="label">Note: </span>
+               <span class="value">{{ dominantNote }}</span>
             </div>
          </div>
       </div>
@@ -150,6 +151,7 @@ const bpm = ref(90)
 const isMetronomeOn = ref(false)
 let metronomeLoop = null
 const lastBeatTime = ref(0) // For spectrogram markers
+const dominantNote = ref('-')
 
 // Spectrum & Spectrogram State
 const spectrumCanvas = ref(null)
@@ -403,27 +405,48 @@ const drawSpectrum = () => {
      }
      
      // Shift existing image to the left
-     // Draw current canvas to temp, shifted left by 1 pixel
      tempCtx.drawImage(canvas, -1, 0)
      
-     // Draw new column at the right edge
-     // We map frequency bins (Y-axis) to pixels
-     // dataArray has 1024 bins (fftSize/2). We need to scale to canvas height.
-     // We usually want low freq at bottom.
+     // Frequency Range: C3 (130.81 Hz) to C6 (1046.50 Hz)
+     const sampleRate = audioContext.sampleRate
+     const binSize = sampleRate / analyser.fftSize
+     const minFreq = 130.81
+     const maxFreq = 1046.50
+     const minBin = Math.floor(minFreq / binSize)
+     const maxBin = Math.ceil(maxFreq / binSize)
+     const rangeBins = maxBin - minBin
+     
+     // Find dominant frequency in this range
+     let maxVal = -1
+     let maxIndex = -1
      
      for (let i = 0; i < height; i++) {
-        // Map pixel y to frequency bin index
-        // y=0 (top) -> High Freq
-        // y=height (bottom) -> Low Freq
-        const binIndex = Math.floor((1 - i / height) * (dataArray.length / 2)) // Use half range for better visibility
+        // Map pixel y to frequency bin index within restricted range
+        // y=0 (top) -> maxBin (High Freq)
+        // y=height (bottom) -> minBin (Low Freq)
+        const binIndex = Math.floor(minBin + (1 - i / height) * rangeBins)
         const value = dataArray[binIndex] || 0
+        
+        if (value > maxVal) {
+          maxVal = value
+          maxIndex = binIndex
+        }
         
         tempCtx.fillStyle = colormap[value]
         tempCtx.fillRect(width - 1, i, 1, 1)
      }
+     
+     // Update Dominant Note Display
+     if (maxVal > 100) { // Threshold to ignore noise
+        const freq = maxIndex * binSize
+        const note = Tone.Frequency(freq).toNote()
+        dominantNote.value = note
+     } else {
+        dominantNote.value = '-'
+     }
 
      // Draw Beat Marker if needed
-     if (isMetronomeOn.value && Date.now() - lastBeatTime.value < 50) { // 50ms window for visual marker
+     if (isMetronomeOn.value && Date.now() - lastBeatTime.value < 50) { 
         tempCtx.fillStyle = 'rgba(255, 255, 255, 0.5)'
         tempCtx.fillRect(width - 1, 0, 1, height)
      }
