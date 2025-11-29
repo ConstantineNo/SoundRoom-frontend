@@ -445,70 +445,87 @@ const drawSpectrum = () => {
      const totalNotes = maxNote - minNote
      
      // --- A. Draw Log-Scale Spectrogram Column ---
-     // We iterate over pixels (Y-axis) which represent Log Frequency (Pitch)
      for (let y = 0; y < height; y++) {
-        // Map Y (pixel) to MIDI Note Number
-        // y=0 (top) -> maxNote
-        // y=height (bottom) -> minNote
         const normalizedY = 1 - (y / height)
         const noteNum = minNote + normalizedY * totalNotes
-        
-        // Convert MIDI Note to Frequency
         const freq = 440 * Math.pow(2, (noteNum - 69) / 12)
-        
-        // Map Frequency to FFT Bin
         const binIndex = Math.floor(freq * analyser.fftSize / sampleRate)
-        
-        // Get Value
         const value = dataArray[binIndex] || 0
-        
-        // Draw Pixel
         tempCtx.fillStyle = colormap[value]
         tempCtx.fillRect(width - 1, y, 1, 1)
      }
      
-     // --- B. Draw Reference Lines (Grid) ---
-     // We draw these on the main ctx (overlay), not the tempCtx (scrolling)
-     // Actually, if we want them to scroll, draw on temp. 
-     // But usually grid lines are static overlays. The user said "Background layer".
-     // Let's draw them on the main canvas AFTER drawing the scrolling part.
+     // --- B. Pitch Detection (YIN Algorithm + Smoothing) ---
+     // Use a smaller buffer for pitch detection to save CPU
+     const pdSize = 2048
+     const buffer = new Float32Array(pdSize)
+     analyser.getFloatTimeDomainData(buffer) // This fills up to fftSize, but we only use first pdSize
      
-     // --- C. Pitch Detection (Autocorrelation) ---
-     const buffer = new Float32Array(analyser.fftSize)
-     analyser.getFloatTimeDomainData(buffer)
-     const detectedFreq = autoCorrelate(buffer, sampleRate)
+     const rawFreq = getPitchYIN(buffer.slice(0, pdSize), sampleRate)
+     let detectedFreq = 0
+     
+     // Smoothing (Median Filter)
+     if (rawFreq > 0) {
+        freqHistory.push(rawFreq)
+        if (freqHistory.length > 5) freqHistory.shift()
+        
+        // Simple Median
+        const sorted = [...freqHistory].sort((a, b) => a - b)
+        detectedFreq = sorted[Math.floor(sorted.length / 2)]
+     } else {
+        // Decay history if silence
+        if (freqHistory.length > 0) freqHistory.shift()
+     }
      
      let detectedNote = '-'
      let deviation = 0
-     let noteName = ''
      
      if (detectedFreq > 0) {
-        // Calculate MIDI Note
         const midiNum = 69 + 12 * Math.log2(detectedFreq / 440)
         const roundedMidi = Math.round(midiNum)
         deviation = (midiNum - roundedMidi) * 100 // Cents
         
-        // Filter range
         if (roundedMidi >= minNote && roundedMidi <= maxNote) {
            detectedNote = Tone.Frequency(detectedFreq).toNote()
            dominantFreq.value = Math.round(detectedFreq)
            dominantNote.value = getNoteLabel(roundedMidi)
            
-           // Visualize Pitch Marker (Pillar)
-           // Y position is based on exact midiNum (not rounded) to show intonation
+           // --- C. Visualize Pitch Marker (Glowing Capsule) ---
            const exactNormalizedY = (midiNum - minNote) / totalNotes
            const yPos = height * (1 - exactNormalizedY)
            
-           // Color based on deviation
-           let color = '#00FF00' // Green (<10)
-           const absDev = Math.abs(deviation)
-           if (absDev > 30) color = '#FF0000' // Red (>30)
-           else if (absDev > 10) color = '#FFFF00' // Yellow (10-30)
+           // Color & Glow Logic
+           let color = '#EF4444' // Red (Default/Bad)
+           let glowColor = 'transparent'
+           let glowBlur = 0
            
-           // Draw Pillar on the right edge (current time)
-           // We draw it slightly wider for visibility
+           const absDev = Math.abs(deviation)
+           if (absDev <= 10) {
+              color = '#10B981' // Emerald Green
+              glowColor = '#10B981'
+              glowBlur = 10
+           } else if (absDev <= 30) {
+              color = '#F59E0B' // Amber
+              glowColor = '#F59E0B'
+              glowBlur = 5
+           }
+           
+           // Draw Capsule on Temp Ctx (Scrolling)
+           tempCtx.save()
            tempCtx.fillStyle = color
-           tempCtx.fillRect(width - 4, yPos - 2, 4, 4) // Small block
+           tempCtx.shadowColor = glowColor
+           tempCtx.shadowBlur = glowBlur
+           
+           // Capsule shape
+           const capsuleWidth = 12
+           const capsuleHeight = 6
+           const x = width - capsuleWidth - 2
+           const y = yPos - capsuleHeight / 2
+           
+           tempCtx.beginPath()
+           tempCtx.roundRect(x, y, capsuleWidth, capsuleHeight, 3)
+           tempCtx.fill()
+           tempCtx.restore()
         }
      } else {
         dominantFreq.value = 0
@@ -531,65 +548,98 @@ const drawSpectrum = () => {
 
 // --- Helper Functions ---
 
-const autoCorrelate = (buf, sampleRate) => {
-  // Implements YIN-like or simple autocorrelation
-  // Optimized for C3 (130Hz) - C7 (2093Hz)
-  // Min Period (samples) = 44100 / 2093 ~= 21
-  // Max Period (samples) = 44100 / 130 ~= 339
-  const SIZE = buf.length
-  const minPeriod = Math.floor(sampleRate / 2093)
-  const maxPeriod = Math.floor(sampleRate / 130)
-  
-  // RMS check for silence
-  let rms = 0
-  for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i]
-  rms = Math.sqrt(rms / SIZE)
-  if (rms < 0.01) return -1
+const freqHistory = [] // State for smoothing
 
-  let bestPeriod = 0
-  let bestCorrelation = -1
+// YIN Algorithm (Simplified)
+const getPitchYIN = (buf, sampleRate) => {
+  const threshold = 0.15
+  const bufferSize = buf.length
+  const yinBuffer = new Float32Array(bufferSize / 2)
   
-  for (let p = minPeriod; p <= maxPeriod; p++) {
-    let correlation = 0
-    for (let i = 0; i < SIZE - p; i++) {
-      correlation += buf[i] * buf[i + p]
-    }
-    // Normalize (basic)
-    if (correlation > bestCorrelation) {
-      bestCorrelation = correlation
-      bestPeriod = p
+  // Step 1: Difference Function
+  for (let t = 0; t < bufferSize / 2; t++) {
+    yinBuffer[t] = 0
+    for (let i = 0; i < bufferSize / 2; i++) {
+      const delta = buf[i] - buf[i + t]
+      yinBuffer[t] += delta * delta
     }
   }
   
-  if (bestCorrelation > 0.01) { // Basic threshold
-     // Refine with parabolic interpolation could go here
-     return sampleRate / bestPeriod
+  // Step 2: Cumulative Mean Normalized Difference
+  yinBuffer[0] = 1
+  let runningSum = 0
+  for (let t = 1; t < bufferSize / 2; t++) {
+    runningSum += yinBuffer[t]
+    yinBuffer[t] *= t / runningSum
   }
-  return -1
+  
+  // Step 3: Absolute Threshold
+  let tau = -1
+  for (let t = 2; t < bufferSize / 2; t++) {
+    if (yinBuffer[t] < threshold) {
+      while (t + 1 < bufferSize / 2 && yinBuffer[t + 1] < yinBuffer[t]) {
+        t++
+      }
+      tau = t
+      break
+    }
+  }
+  
+  if (tau === -1) return -1 // No pitch found
+  
+  // Step 4: Parabolic Interpolation
+  const betterTau = parabolicInterpolation(yinBuffer, tau)
+  return sampleRate / betterTau
+}
+
+const parabolicInterpolation = (array, x) => {
+  const x0 = x < 1 ? x : x - 1
+  const x2 = x + 1 < array.length ? x + 1 : x
+  if (x0 === x) return x
+  if (x2 === x) return x
+  
+  const s0 = array[x0]
+  const s1 = array[x]
+  const s2 = array[x2]
+  
+  let newx = x + (s2 - s0) / (2 * (2 * s1 - s2 - s0))
+  return newx
 }
 
 const drawGrid = (ctx, width, height, minNote, maxNote) => {
   const totalNotes = maxNote - minNote
   ctx.save()
   
+  ctx.font = '10px Roboto Mono'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  
   for (let n = minNote; n <= maxNote; n++) {
      const normalizedY = (n - minNote) / totalNotes
      const y = height * (1 - normalizedY)
      
      const noteName = Tone.Frequency(440 * Math.pow(2, (n - 69) / 12)).toNote()
-     const isOctave = noteName.includes('C') && !noteName.includes('#') // C4, C5...
+     const isC = noteName.startsWith('C') && !noteName.includes('#') // C3, C4...
      const isSharp = noteName.includes('#')
      
      ctx.beginPath()
-     if (isOctave) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
-        ctx.lineWidth = 2
+     if (isC) {
+        // C-key Reference: Thicker, more visible
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([])
+        
+        // Label on Left
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
+        ctx.fillText(noteName, 4, y)
      } else if (isSharp) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)' // Faint for semitones
+        // Semitone: Very faint
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'
         ctx.lineWidth = 1
         ctx.setLineDash([2, 4])
      } else {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)' // Whole tones
+        // Whole tone (non-C): Faint solid
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
         ctx.lineWidth = 1
         ctx.setLineDash([])
      }
@@ -597,13 +647,6 @@ const drawGrid = (ctx, width, height, minNote, maxNote) => {
      ctx.moveTo(0, y)
      ctx.lineTo(width, y)
      ctx.stroke()
-     
-     // Labels
-     if (isOctave) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
-        ctx.font = '10px Roboto Mono'
-        ctx.fillText(noteName, 5, y - 2)
-     }
   }
   ctx.restore()
 }
