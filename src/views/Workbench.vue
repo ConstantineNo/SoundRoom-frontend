@@ -420,7 +420,7 @@ const drawSpectrum = () => {
     }
   }
 
-  // 2. Draw Spectrogram (Waterfall)
+  // 2. Draw Spectrogram (Log Scale) & Pitch Detection
   if (viewMode.value === 'analysis' && spectrogramCanvas.value) {
      const canvas = spectrogramCanvas.value
      const ctx = canvas.getContext('2d')
@@ -436,61 +436,83 @@ const drawSpectrum = () => {
        tempCtx.fillRect(0, 0, width, height)
      }
      
+     // Shift existing image
      tempCtx.drawImage(canvas, -1, 0)
      
      const sampleRate = audioContext.sampleRate
-     const binSize = sampleRate / analyser.fftSize
-     const minFreq = 130.81 // C3
-     const maxFreq = 2093.00 // C7
-     const minBin = Math.floor(minFreq / binSize)
-     const maxBin = Math.ceil(maxFreq / binSize)
+     const minNote = 48 // C3
+     const maxNote = 96 // C7
+     const totalNotes = maxNote - minNote
      
-     // 1. Find Dominant Frequency (Search Bins Directly)
-     let maxVal = -Infinity
-     let maxIndex = -1
-     
-     // Convert byte data (0-255) to dB (-100 to 0 approx) for calculation if needed,
-     // but for finding max, raw 0-255 is fine.
-     // However, for display, we need to map 0-255 to the custom colormap.
-     
-     for (let j = minBin; j <= maxBin; j++) {
-        const value = dataArray[j]
-        if (value > maxVal) {
-           maxVal = value
-           maxIndex = j
-        }
+     // --- A. Draw Log-Scale Spectrogram Column ---
+     // We iterate over pixels (Y-axis) which represent Log Frequency (Pitch)
+     for (let y = 0; y < height; y++) {
+        // Map Y (pixel) to MIDI Note Number
+        // y=0 (top) -> maxNote
+        // y=height (bottom) -> minNote
+        const normalizedY = 1 - (y / height)
+        const noteNum = minNote + normalizedY * totalNotes
+        
+        // Convert MIDI Note to Frequency
+        const freq = 440 * Math.pow(2, (noteNum - 69) / 12)
+        
+        // Map Frequency to FFT Bin
+        const binIndex = Math.floor(freq * analyser.fftSize / sampleRate)
+        
+        // Get Value
+        const value = dataArray[binIndex] || 0
+        
+        // Draw Pixel
+        tempCtx.fillStyle = colormap[value]
+        tempCtx.fillRect(width - 1, y, 1, 1)
      }
      
-     // Update Stats
-     if (maxVal > 50) { // Lower threshold slightly
-        const freq = maxIndex * binSize
-        dominantFreq.value = Math.round(freq)
-        dominantNote.value = Tone.Frequency(freq).toNote()
+     // --- B. Draw Reference Lines (Grid) ---
+     // We draw these on the main ctx (overlay), not the tempCtx (scrolling)
+     // Actually, if we want them to scroll, draw on temp. 
+     // But usually grid lines are static overlays. The user said "Background layer".
+     // Let's draw them on the main canvas AFTER drawing the scrolling part.
+     
+     // --- C. Pitch Detection (Autocorrelation) ---
+     const buffer = new Float32Array(analyser.fftSize)
+     analyser.getFloatTimeDomainData(buffer)
+     const detectedFreq = autoCorrelate(buffer, sampleRate)
+     
+     let detectedNote = '-'
+     let deviation = 0
+     let noteName = ''
+     
+     if (detectedFreq > 0) {
+        // Calculate MIDI Note
+        const midiNum = 69 + 12 * Math.log2(detectedFreq / 440)
+        const roundedMidi = Math.round(midiNum)
+        deviation = (midiNum - roundedMidi) * 100 // Cents
+        
+        // Filter range
+        if (roundedMidi >= minNote && roundedMidi <= maxNote) {
+           detectedNote = Tone.Frequency(detectedFreq).toNote()
+           dominantFreq.value = Math.round(detectedFreq)
+           dominantNote.value = getNoteLabel(roundedMidi)
+           
+           // Visualize Pitch Marker (Pillar)
+           // Y position is based on exact midiNum (not rounded) to show intonation
+           const exactNormalizedY = (midiNum - minNote) / totalNotes
+           const yPos = height * (1 - exactNormalizedY)
+           
+           // Color based on deviation
+           let color = '#00FF00' // Green (<10)
+           const absDev = Math.abs(deviation)
+           if (absDev > 30) color = '#FF0000' // Red (>30)
+           else if (absDev > 10) color = '#FFFF00' // Yellow (10-30)
+           
+           // Draw Pillar on the right edge (current time)
+           // We draw it slightly wider for visibility
+           tempCtx.fillStyle = color
+           tempCtx.fillRect(width - 4, yPos - 2, 4, 4) // Small block
+        }
      } else {
         dominantFreq.value = 0
         dominantNote.value = '-'
-     }
-
-     // 2. Draw Column (Map Freq to Pixels)
-     const rangeBins = maxBin - minBin
-     
-     for (let i = 0; i < height; i++) {
-        // Map pixel i to frequency bin
-        // i=0 (top) -> maxBin
-        // i=height (bottom) -> minBin
-        const ratio = 1 - (i / height)
-        const binIndex = Math.floor(minBin + ratio * rangeBins)
-        
-        const value = dataArray[binIndex] || 0 // 0-255
-        
-        // Map 0-255 to colormap index
-        // The colormap is designed for dB levels.
-        // AnalyserNode.getByteFrequencyData returns 0-255.
-        // 255 ~= 0dB, 0 ~= -100dB (approx, depends on minDecibels/maxDecibels)
-        // We can map directly 0-255 to our 256-entry colormap.
-        
-        tempCtx.fillStyle = colormap[value]
-        tempCtx.fillRect(width - 1, i, 1, 1)
      }
 
      // Draw Beat Marker
@@ -499,8 +521,126 @@ const drawSpectrum = () => {
         tempCtx.fillRect(width - 1, 0, 1, height)
      }
      
+     // 1. Draw Scrolling Spectrogram
      ctx.drawImage(tempCanvas, 0, 0)
+     
+     // 2. Draw Static Grid Overlay
+     drawGrid(ctx, width, height, minNote, maxNote)
   }
+}
+
+// --- Helper Functions ---
+
+const autoCorrelate = (buf, sampleRate) => {
+  // Implements YIN-like or simple autocorrelation
+  // Optimized for C3 (130Hz) - C7 (2093Hz)
+  // Min Period (samples) = 44100 / 2093 ~= 21
+  // Max Period (samples) = 44100 / 130 ~= 339
+  const SIZE = buf.length
+  const minPeriod = Math.floor(sampleRate / 2093)
+  const maxPeriod = Math.floor(sampleRate / 130)
+  
+  // RMS check for silence
+  let rms = 0
+  for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i]
+  rms = Math.sqrt(rms / SIZE)
+  if (rms < 0.01) return -1
+
+  let bestPeriod = 0
+  let bestCorrelation = -1
+  
+  for (let p = minPeriod; p <= maxPeriod; p++) {
+    let correlation = 0
+    for (let i = 0; i < SIZE - p; i++) {
+      correlation += buf[i] * buf[i + p]
+    }
+    // Normalize (basic)
+    if (correlation > bestCorrelation) {
+      bestCorrelation = correlation
+      bestPeriod = p
+    }
+  }
+  
+  if (bestCorrelation > 0.01) { // Basic threshold
+     // Refine with parabolic interpolation could go here
+     return sampleRate / bestPeriod
+  }
+  return -1
+}
+
+const drawGrid = (ctx, width, height, minNote, maxNote) => {
+  const totalNotes = maxNote - minNote
+  ctx.save()
+  
+  for (let n = minNote; n <= maxNote; n++) {
+     const normalizedY = (n - minNote) / totalNotes
+     const y = height * (1 - normalizedY)
+     
+     const noteName = Tone.Frequency(440 * Math.pow(2, (n - 69) / 12)).toNote()
+     const isOctave = noteName.includes('C') && !noteName.includes('#') // C4, C5...
+     const isSharp = noteName.includes('#')
+     
+     ctx.beginPath()
+     if (isOctave) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+        ctx.lineWidth = 2
+     } else if (isSharp) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)' // Faint for semitones
+        ctx.lineWidth = 1
+        ctx.setLineDash([2, 4])
+     } else {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)' // Whole tones
+        ctx.lineWidth = 1
+        ctx.setLineDash([])
+     }
+     
+     ctx.moveTo(0, y)
+     ctx.lineTo(width, y)
+     ctx.stroke()
+     
+     // Labels
+     if (isOctave) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+        ctx.font = '10px Roboto Mono'
+        ctx.fillText(noteName, 5, y - 2)
+     }
+  }
+  ctx.restore()
+}
+
+const getNoteLabel = (midiNum) => {
+  // Determine Key Offset
+  // Default to C Major if no score or key
+  let root = 0 // C
+  if (score.value && score.value.song_key) {
+     const keyMap = {
+       'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3,
+       'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8,
+       'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
+     }
+     // Handle "G Major" -> "G"
+     const keyName = score.value.song_key.split(' ')[0]
+     if (keyMap[keyName] !== undefined) root = keyMap[keyName]
+  }
+  
+  const relativeIndex = (midiNum - root) % 12
+  // Jianpu Map (Major Scale)
+  // 0(1), 2(2), 4(3), 5(4), 7(5), 9(6), 11(7)
+  const jianpuMap = {
+    0: '1', 1: '#1', 2: '2', 3: '#2', 4: '3', 5: '4',
+    6: '#4', 7: '5', 8: '#5', 9: '6', 10: '#6', 11: '7'
+  }
+  
+  // If we want to support "b7" instead of "#6", logic gets complex.
+  // For now, simple mapping.
+  // Also append octave? User example didn't show octave for Jianpu.
+  // But for Absolute (C4), we use Tone.js
+  
+  // For now, return Absolute + Relative
+  const abs = Tone.Frequency(440 * Math.pow(2, (midiNum - 69) / 12)).toNote()
+  const rel = jianpuMap[relativeIndex] || '?'
+  
+  return `${abs} (${rel})`
 }
 
 const stopSpectrum = () => {
