@@ -44,6 +44,9 @@
             <div class="analysis-stat">
                <span class="label">Note: </span>
                <span class="value">{{ dominantNote }}</span>
+               <span class="debug-info" style="font-size: 0.8rem; color: #888; margin-left: 10px;">
+                 ({{ dominantFreq }} Hz)
+               </span>
             </div>
          </div>
       </div>
@@ -297,7 +300,7 @@ const startRecording = async () => {
     const source = audioContext.createMediaStreamSource(stream)
     source.connect(analyser)
     
-    analyser.fftSize = 2048
+    analyser.fftSize = 8192 // Increased from 2048 for better frequency resolution (~5.8Hz per bin)
     const bufferLength = analyser.frequencyBinCount
     dataArray = new Uint8Array(bufferLength)
     
@@ -394,7 +397,6 @@ const drawSpectrum = () => {
      const width = canvas.width
      const height = canvas.height
      
-     // Initialize tempCanvas if needed
      if (!tempCanvas) {
        tempCanvas = document.createElement('canvas')
        tempCanvas.width = width
@@ -404,54 +406,61 @@ const drawSpectrum = () => {
        tempCtx.fillRect(0, 0, width, height)
      }
      
-     // Shift existing image to the left
      tempCtx.drawImage(canvas, -1, 0)
      
-     // Frequency Range: C3 (130.81 Hz) to C6 (1046.50 Hz)
      const sampleRate = audioContext.sampleRate
      const binSize = sampleRate / analyser.fftSize
-     const minFreq = 130.81
-     const maxFreq = 1046.50
+     const minFreq = 130.81 // C3
+     const maxFreq = 1046.50 // C6
      const minBin = Math.floor(minFreq / binSize)
      const maxBin = Math.ceil(maxFreq / binSize)
-     const rangeBins = maxBin - minBin
      
-     // Find dominant frequency in this range
+     // 1. Find Dominant Frequency (Search Bins Directly)
      let maxVal = -1
      let maxIndex = -1
      
-     for (let i = 0; i < height; i++) {
-        // Map pixel y to frequency bin index within restricted range
-        // y=0 (top) -> maxBin (High Freq)
-        // y=height (bottom) -> minBin (Low Freq)
-        const binIndex = Math.floor(minBin + (1 - i / height) * rangeBins)
-        const value = dataArray[binIndex] || 0
-        
+     for (let j = minBin; j <= maxBin; j++) {
+        const value = dataArray[j]
         if (value > maxVal) {
-          maxVal = value
-          maxIndex = binIndex
+           maxVal = value
+           maxIndex = j
         }
+     }
+     
+     // Update Stats
+     if (maxVal > 100) { // Threshold
+        const freq = maxIndex * binSize
+        dominantFreq.value = Math.round(freq)
+        dominantNote.value = Tone.Frequency(freq).toNote()
+     } else {
+        dominantFreq.value = 0
+        dominantNote.value = '-'
+     }
+
+     // 2. Draw Column (Map Freq to Pixels)
+     // We want minFreq at bottom (height), maxFreq at top (0)
+     const rangeBins = maxBin - minBin
+     
+     for (let i = 0; i < height; i++) {
+        // Map pixel i to frequency bin
+        // i=0 (top) -> maxBin
+        // i=height (bottom) -> minBin
+        // Linear mapping
+        const ratio = 1 - (i / height)
+        const binIndex = Math.floor(minBin + ratio * rangeBins)
+        
+        const value = dataArray[binIndex] || 0
         
         tempCtx.fillStyle = colormap[value]
         tempCtx.fillRect(width - 1, i, 1, 1)
      }
-     
-     // Update Dominant Note Display
-     if (maxVal > 100) { // Threshold to ignore noise
-        const freq = maxIndex * binSize
-        const note = Tone.Frequency(freq).toNote()
-        dominantNote.value = note
-     } else {
-        dominantNote.value = '-'
-     }
 
-     // Draw Beat Marker if needed
+     // Draw Beat Marker
      if (isMetronomeOn.value && Date.now() - lastBeatTime.value < 50) { 
         tempCtx.fillStyle = 'rgba(255, 255, 255, 0.5)'
         tempCtx.fillRect(width - 1, 0, 1, height)
      }
      
-     // Copy back to main canvas
      ctx.drawImage(tempCanvas, 0, 0)
   }
 }
