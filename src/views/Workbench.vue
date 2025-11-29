@@ -1,6 +1,6 @@
 <template>
   <div class="workbench-container" :class="{ 'rack-collapsed': isRackCollapsed }">
-    <!-- Header / Toolbar (Optional, for view switching) -->
+    <!-- Header / Toolbar -->
     <div class="stage-toolbar">
        <div class="view-switcher">
           <button 
@@ -13,7 +13,7 @@
             class="switch-btn" 
             :class="{ active: viewMode === 'analysis' }"
             @click="viewMode = 'analysis'">
-            📊 频谱分析
+            📊 语谱图
           </button>
        </div>
        <button class="rack-toggle-btn" @click="toggleRack">
@@ -30,22 +30,20 @@
          @mouseleave="stopDrag">
       
       <!-- Mode: Score -->
-      <div v-if="viewMode === 'score'" class="stage-content score-mode">
+      <div v-show="viewMode === 'score'" class="stage-content score-mode">
         <div v-if="score" class="score-wrapper" :style="scoreStyle">
           <img :src="getScoreImageUrl(score.image_path)" class="score-image" draggable="false" />
         </div>
         <div v-else class="loading-text">Loading score...</div>
       </div>
 
-      <!-- Mode: Analysis (Large Spectrum) -->
+      <!-- Mode: Analysis (Spectrogram) -->
       <div v-show="viewMode === 'analysis'" class="stage-content analysis-mode">
-         <canvas ref="analysisCanvas" class="analysis-canvas"></canvas>
+         <canvas ref="spectrogramCanvas" class="spectrogram-canvas"></canvas>
          <div class="analysis-overlay">
             <div class="analysis-stat">
-               <span class="label">Dominant Freq</span>
-               <span class="value">{{ dominantFreq }} Hz</span>
+               <span class="label">Spectrogram</span>
             </div>
-            <!-- Add more stats if needed -->
          </div>
       </div>
     </div>
@@ -136,9 +134,8 @@ const message = useMessage()
 const userStore = useUserStore()
 
 // UI State
-const isRackCollapsed = ref(window.innerWidth < 768) // Default collapsed on mobile
+const isRackCollapsed = ref(window.innerWidth < 768)
 const viewMode = ref('score') // 'score' | 'analysis'
-const dominantFreq = ref(0)
 
 // Zoom & Pan State
 const scale = ref(1)
@@ -152,16 +149,20 @@ const startY = ref(0)
 const bpm = ref(90)
 const isMetronomeOn = ref(false)
 let metronomeLoop = null
+const lastBeatTime = ref(0) // For spectrogram markers
 
-// Spectrum State
+// Spectrum & Spectrogram State
 const spectrumCanvas = ref(null)
-const analysisCanvas = ref(null)
+const spectrogramCanvas = ref(null)
 let audioContext = null
 let analyser = null
 let dataArray = null
 let animationId = null
 let mediaRecorder = null
 let audioChunks = []
+let tempCanvas = null // Offscreen canvas for scrolling
+let tempCtx = null
+let colormap = [] // Precomputed colors
 
 const scoreStyle = computed(() => ({
   transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
@@ -222,6 +223,8 @@ const toggleMetronome = async () => {
       const synth = new Tone.MembraneSynth().toDestination()
       metronomeLoop = new Tone.Loop((time) => {
         synth.triggerAttackRelease("C2", "8n", time)
+        // Record beat time for spectrogram
+        lastBeatTime.value = Date.now()
       }, "4n")
       metronomeLoop.start(0)
     }
@@ -296,6 +299,7 @@ const startRecording = async () => {
     const bufferLength = analyser.frequencyBinCount
     dataArray = new Uint8Array(bufferLength)
     
+    initColormap()
     drawSpectrum()
 
     mediaRecorder.ondataavailable = (event) => {
@@ -327,25 +331,33 @@ const startRecording = async () => {
   }
 }
 
+// Generate a simple heatmap colormap (Black -> Blue -> Cyan -> White)
+const initColormap = () => {
+  colormap = []
+  for (let i = 0; i < 256; i++) {
+    let r, g, b
+    if (i < 128) {
+       // Black to Blue/Cyan
+       r = 0
+       g = i * 2
+       b = i * 2 + 50
+    } else {
+       // Cyan to White
+       r = (i - 128) * 2
+       g = 255
+       b = 255
+    }
+    colormap[i] = `rgb(${Math.min(255, r)}, ${Math.min(255, g)}, ${Math.min(255, b)})`
+  }
+}
+
 const drawSpectrum = () => {
-  if (!spectrumCanvas.value && !analysisCanvas.value) return
+  if (!spectrumCanvas.value && !spectrogramCanvas.value) return
   
   animationId = requestAnimationFrame(drawSpectrum)
   analyser.getByteFrequencyData(dataArray)
   
-  // Calculate Dominant Frequency (Simple Peak Detection)
-  let maxVal = -1
-  let maxIndex = -1
-  for (let i = 0; i < dataArray.length; i++) {
-    if (dataArray[i] > maxVal) {
-      maxVal = dataArray[i]
-      maxIndex = i
-    }
-  }
-  const nyquist = audioContext.sampleRate / 2
-  dominantFreq.value = Math.round((maxIndex / dataArray.length) * nyquist)
-  
-  // Draw Bottom Spectrum
+  // 1. Draw Bottom Spectrum (Instantaneous)
   if (spectrumCanvas.value) {
     const canvas = spectrumCanvas.value
     const ctx = canvas.getContext('2d')
@@ -373,34 +385,51 @@ const drawSpectrum = () => {
     }
   }
 
-  // Draw Center Analysis (if visible)
-  if (viewMode.value === 'analysis' && analysisCanvas.value) {
-     const canvas = analysisCanvas.value
+  // 2. Draw Spectrogram (Waterfall)
+  if (viewMode.value === 'analysis' && spectrogramCanvas.value) {
+     const canvas = spectrogramCanvas.value
      const ctx = canvas.getContext('2d')
      const width = canvas.width
      const height = canvas.height
      
-     ctx.fillStyle = '#1A1A1D'
-     ctx.fillRect(0, 0, width, height)
-     
-     // Draw a more detailed line graph
-     ctx.lineWidth = 2
-     ctx.strokeStyle = '#50C878'
-     ctx.beginPath()
-     
-     const sliceWidth = width * 1.0 / dataArray.length
-     let x = 0
-     
-     for(let i = 0; i < dataArray.length; i++) {
-       const v = dataArray[i] / 128.0
-       const y = height - (v * height / 2)
-       
-       if(i === 0) ctx.moveTo(x, y)
-       else ctx.lineTo(x, y)
-       
-       x += sliceWidth
+     // Initialize tempCanvas if needed
+     if (!tempCanvas) {
+       tempCanvas = document.createElement('canvas')
+       tempCanvas.width = width
+       tempCanvas.height = height
+       tempCtx = tempCanvas.getContext('2d')
+       tempCtx.fillStyle = '#000'
+       tempCtx.fillRect(0, 0, width, height)
      }
-     ctx.stroke()
+     
+     // Shift existing image to the left
+     // Draw current canvas to temp, shifted left by 1 pixel
+     tempCtx.drawImage(canvas, -1, 0)
+     
+     // Draw new column at the right edge
+     // We map frequency bins (Y-axis) to pixels
+     // dataArray has 1024 bins (fftSize/2). We need to scale to canvas height.
+     // We usually want low freq at bottom.
+     
+     for (let i = 0; i < height; i++) {
+        // Map pixel y to frequency bin index
+        // y=0 (top) -> High Freq
+        // y=height (bottom) -> Low Freq
+        const binIndex = Math.floor((1 - i / height) * (dataArray.length / 2)) // Use half range for better visibility
+        const value = dataArray[binIndex] || 0
+        
+        tempCtx.fillStyle = colormap[value]
+        tempCtx.fillRect(width - 1, i, 1, 1)
+     }
+
+     // Draw Beat Marker if needed
+     if (isMetronomeOn.value && Date.now() - lastBeatTime.value < 50) { // 50ms window for visual marker
+        tempCtx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+        tempCtx.fillRect(width - 1, 0, 1, height)
+     }
+     
+     // Copy back to main canvas
+     ctx.drawImage(tempCanvas, 0, 0)
   }
 }
 
@@ -410,6 +439,7 @@ const stopSpectrum = () => {
     audioContext.close()
     audioContext = null
   }
+  tempCanvas = null
 }
 
 const stopRecording = () => {
@@ -449,9 +479,11 @@ const resizeCanvases = () => {
     spectrumCanvas.value.width = spectrumCanvas.value.offsetWidth
     spectrumCanvas.value.height = spectrumCanvas.value.offsetHeight
   }
-  if (analysisCanvas.value) {
-    analysisCanvas.value.width = analysisCanvas.value.offsetWidth
-    analysisCanvas.value.height = analysisCanvas.value.offsetHeight
+  if (spectrogramCanvas.value) {
+    spectrogramCanvas.value.width = spectrogramCanvas.value.offsetWidth
+    spectrogramCanvas.value.height = spectrogramCanvas.value.offsetHeight
+    // Reset temp canvas on resize
+    tempCanvas = null
   }
 }
 
@@ -484,7 +516,7 @@ watch(viewMode, () => {
 .workbench-container {
   display: grid;
   grid-template-columns: 1fr 280px;
-  grid-template-rows: 48px 1fr 200px; /* Added header row */
+  grid-template-rows: 48px 1fr 200px;
   height: calc(100vh - 64px);
   background-color: #121214;
   color: #E0E0E0;
@@ -493,7 +525,7 @@ watch(viewMode, () => {
 }
 
 .workbench-container.rack-collapsed {
-  grid-template-columns: 1fr 0px; /* Collapse side rack */
+  grid-template-columns: 1fr 0px;
 }
 
 /* Toolbar */
@@ -581,11 +613,13 @@ watch(viewMode, () => {
 
 .analysis-mode {
   position: relative;
+  background-color: #000;
 }
 
-.analysis-canvas {
+.spectrogram-canvas {
   width: 100%;
   height: 100%;
+  display: block;
 }
 
 .analysis-overlay {
@@ -595,6 +629,7 @@ watch(viewMode, () => {
   background: rgba(0,0,0,0.5);
   padding: 8px 16px;
   border-radius: 8px;
+  pointer-events: none;
 }
 
 .analysis-stat {
@@ -606,7 +641,7 @@ watch(viewMode, () => {
 /* Side Rack */
 .side-rack {
   grid-column: 2 / 3;
-  grid-row: 2 / 3; /* Adjusted row */
+  grid-row: 2 / 3;
   background-color: #18181B;
   border-left: 1px solid #333;
   padding: 20px;
@@ -626,7 +661,7 @@ watch(viewMode, () => {
   border: none;
 }
 
-/* Modules (Same as before) */
+/* Modules */
 .rack-module {
   background: #222;
   border: 1px solid #333;
@@ -636,7 +671,7 @@ watch(viewMode, () => {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 
 .module-title { font-size: 0.8rem; font-weight: 700; color: #666; letter-spacing: 1px; }
@@ -651,7 +686,7 @@ watch(viewMode, () => {
 
 /* Spectral Console */
 .spectral-console {
-  grid-column: 1 / 3; /* Span full width when rack is collapsed, but grid handles it */
+  grid-column: 1 / 3;
   grid-row: 3 / 4;
   background-color: #121214;
   position: relative;
@@ -693,7 +728,6 @@ watch(viewMode, () => {
 @keyframes breathe { 0% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); } 50% { box-shadow: 0 0 25px rgba(255, 51, 51, 0.8); } 100% { box-shadow: 0 0 15px rgba(255, 51, 51, 0.5); } }
 .waveform-hidden { display: none; }
 
-/* Mobile Adjustments */
 @media (max-width: 768px) {
   .console-controls {
     width: 90%;
@@ -701,6 +735,6 @@ watch(viewMode, () => {
     padding: 8px 16px;
     justify-content: space-between;
   }
-  .track-info { display: none; } /* Hide track info on small screens */
+  .track-info { display: none; }
 }
 </style>
