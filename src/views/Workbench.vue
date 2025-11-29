@@ -301,7 +301,10 @@ const startRecording = async () => {
     const source = audioContext.createMediaStreamSource(stream)
     source.connect(analyser)
     
-    analyser.fftSize = 8192 // Increased from 2048 for better frequency resolution (~5.8Hz per bin)
+    source.connect(analyser)
+    
+    analyser.fftSize = 16384 // Max resolution for Web Audio API (usually)
+    // analyser.smoothingTimeConstant = 0 // Optional: Remove smoothing for raw data
     const bufferLength = analyser.frequencyBinCount
     dataArray = new Uint8Array(bufferLength)
     
@@ -337,23 +340,49 @@ const startRecording = async () => {
   }
 }
 
-// Generate a simple heatmap colormap (Black -> Blue -> Cyan -> White)
+// Generate custom colormap based on dB scale image
+// -120dB (Black/Dark Green) -> -60dB (Pink) -> -30dB (Yellow) -> 0dB (White)
 const initColormap = () => {
   colormap = []
   for (let i = 0; i < 256; i++) {
+    // i is 0-255, representing -100dB to -30dB range typically mapped by AnalyserNode
+    // But we can define our own gradient.
+    // Let's approximate the provided scale:
+    // Low (0-50): Dark Green/Black (#001100)
+    // Mid-Low (50-100): Purple/Pink (#800080)
+    // Mid-High (100-180): Orange/Yellow (#FFD700)
+    // High (180-255): White (#FFFFFF)
+    
     let r, g, b
-    if (i < 128) {
-       // Black to Blue/Cyan
+    if (i < 50) {
+       // Black to Dark Green
        r = 0
-       g = i * 2
-       b = i * 2 + 50
+       g = Math.floor((i / 50) * 50)
+       b = Math.floor((i / 50) * 50)
+    } else if (i < 120) {
+       // Dark Green to Purple/Pink
+       // Start: 0, 50, 50
+       // End: 200, 100, 200 (Pinkish)
+       const t = (i - 50) / 70
+       r = Math.floor(0 + t * 200)
+       g = Math.floor(50 + t * 50)
+       b = Math.floor(50 + t * 150)
+    } else if (i < 200) {
+       // Pink to Yellow/White
+       // Start: 200, 100, 200
+       // End: 255, 255, 200
+       const t = (i - 120) / 80
+       r = Math.floor(200 + t * 55)
+       g = Math.floor(100 + t * 155)
+       b = 200
     } else {
-       // Cyan to White
-       r = (i - 128) * 2
+       // Yellow to White
+       const t = (i - 200) / 55
+       r = 255
        g = 255
-       b = 255
+       b = Math.floor(200 + t * 55)
     }
-    colormap[i] = `rgb(${Math.min(255, r)}, ${Math.min(255, g)}, ${Math.min(255, b)})`
+    colormap[i] = `rgb(${r}, ${g}, ${b})`
   }
 }
 
@@ -412,13 +441,17 @@ const drawSpectrum = () => {
      const sampleRate = audioContext.sampleRate
      const binSize = sampleRate / analyser.fftSize
      const minFreq = 130.81 // C3
-     const maxFreq = 1046.50 // C6
+     const maxFreq = 2093.00 // C7
      const minBin = Math.floor(minFreq / binSize)
      const maxBin = Math.ceil(maxFreq / binSize)
      
      // 1. Find Dominant Frequency (Search Bins Directly)
-     let maxVal = -1
+     let maxVal = -Infinity
      let maxIndex = -1
+     
+     // Convert byte data (0-255) to dB (-100 to 0 approx) for calculation if needed,
+     // but for finding max, raw 0-255 is fine.
+     // However, for display, we need to map 0-255 to the custom colormap.
      
      for (let j = minBin; j <= maxBin; j++) {
         const value = dataArray[j]
@@ -429,7 +462,7 @@ const drawSpectrum = () => {
      }
      
      // Update Stats
-     if (maxVal > 100) { // Threshold
+     if (maxVal > 50) { // Lower threshold slightly
         const freq = maxIndex * binSize
         dominantFreq.value = Math.round(freq)
         dominantNote.value = Tone.Frequency(freq).toNote()
@@ -439,18 +472,22 @@ const drawSpectrum = () => {
      }
 
      // 2. Draw Column (Map Freq to Pixels)
-     // We want minFreq at bottom (height), maxFreq at top (0)
      const rangeBins = maxBin - minBin
      
      for (let i = 0; i < height; i++) {
         // Map pixel i to frequency bin
         // i=0 (top) -> maxBin
         // i=height (bottom) -> minBin
-        // Linear mapping
         const ratio = 1 - (i / height)
         const binIndex = Math.floor(minBin + ratio * rangeBins)
         
-        const value = dataArray[binIndex] || 0
+        const value = dataArray[binIndex] || 0 // 0-255
+        
+        // Map 0-255 to colormap index
+        // The colormap is designed for dB levels.
+        // AnalyserNode.getByteFrequencyData returns 0-255.
+        // 255 ~= 0dB, 0 ~= -100dB (approx, depends on minDecibels/maxDecibels)
+        // We can map directly 0-255 to our 256-entry colormap.
         
         tempCtx.fillStyle = colormap[value]
         tempCtx.fillRect(width - 1, i, 1, 1)
