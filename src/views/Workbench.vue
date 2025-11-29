@@ -122,6 +122,9 @@ let animationId = null
 
 const startRecording = async () => {
   try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('BrowserAPIUnsupported')
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     mediaRecorder = new MediaRecorder(stream)
     audioChunks = []
@@ -157,8 +160,20 @@ const startRecording = async () => {
       isPlaying.value = true
     }
   } catch (error) {
-    console.error(error)
-    message.error('无法访问麦克风，请确保使用HTTPS或Localhost访问')
+    console.error('Microphone access error:', error)
+    if (error.name === 'NotAllowedError') {
+      message.error('麦克风权限被拒绝，请在浏览器设置中允许访问')
+    } else if (error.name === 'NotFoundError') {
+      message.error('未找到麦克风设备')
+    } else if (error.name === 'NotReadableError') {
+      message.error('麦克风被占用或无法访问')
+    } else if (error.name === 'SecurityError' || (window.isSecureContext === false && window.location.hostname !== 'localhost')) {
+      message.error('浏览器安全策略限制：非HTTPS环境可能无法访问麦克风')
+    } else if (error.message === 'BrowserAPIUnsupported') {
+      message.error('当前浏览器环境不支持录音API (可能是因为未使用HTTPS)')
+    } else {
+      message.error(`无法访问麦克风: ${error.name} - ${error.message}`)
+    }
   }
 }
 
