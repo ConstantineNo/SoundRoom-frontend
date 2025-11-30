@@ -155,64 +155,84 @@ const drawSpectrogram = () => {
   }
   
   // --- B. Pitch Detection (YIN Algorithm + Smoothing) ---
-  const pdSize = 2048
-  const buffer = new Float32Array(pdSize)
-  props.analyser.getFloatTimeDomainData(buffer)
-  
-  const rawFreq = getPitchYIN(buffer.slice(0, pdSize), sampleRate)
-  let detectedFreq = 0
-  
-  if (rawFreq > 0) {
-    freqHistory.push(rawFreq)
-    if (freqHistory.length > 5) freqHistory.shift()
-    const sorted = [...freqHistory].sort((a, b) => a - b)
-    detectedFreq = sorted[Math.floor(sorted.length / 2)]
-  } else {
-    if (freqHistory.length > 0) freqHistory.shift()
-  }
-  
-  if (detectedFreq > 0) {
-    const midiNum = 69 + 12 * Math.log2(detectedFreq / 440)
-    const roundedMidi = Math.round(midiNum)
-    const deviation = (midiNum - roundedMidi) * 100
+  // Optimization: Run pitch detection every 2 frames (30 FPS)
+  if (animationId % 2 === 0) {
+    const pdSize = 2048
+    const buffer = new Float32Array(pdSize)
+    props.analyser.getFloatTimeDomainData(buffer)
     
-    if (roundedMidi >= minNote && roundedMidi <= maxNote) {
-       dominantFreq.value = Math.round(detectedFreq)
-       dominantNote.value = getNoteLabel(roundedMidi)
-       
-       // --- C. Visualize Pitch Marker (Glowing Capsule) ---
-       const exactNormalizedY = (midiNum - minNote) / totalNotes
-       const yPos = height * (1 - exactNormalizedY)
-       
-       let color = '#EF4444'
-       let glowColor = 'transparent'
-       let glowBlur = 0
-       
-       const absDev = Math.abs(deviation)
-       if (absDev <= 10) {
-          color = '#10B981'; glowColor = '#10B981'; glowBlur = 10
-       } else if (absDev <= 30) {
-          color = '#F59E0B'; glowColor = '#F59E0B'; glowBlur = 5
-       }
-       
-       tempCtx.save()
-       tempCtx.fillStyle = color
-       tempCtx.shadowColor = glowColor
-       tempCtx.shadowBlur = glowBlur
-       
-       const capsuleWidth = 12
-       const capsuleHeight = 6
-       const x = width - capsuleWidth - 2
-       const y = yPos - capsuleHeight / 2
-       
-       tempCtx.beginPath()
-       tempCtx.roundRect(x, y, capsuleWidth, capsuleHeight, 3)
-       tempCtx.fill()
-       tempCtx.restore()
+    // 1. Calculate RMS for silence detection
+    let sumSquares = 0
+    for (let i = 0; i < pdSize; i++) {
+       sumSquares += buffer[i] * buffer[i]
     }
-  } else {
-    dominantFreq.value = 0
-    dominantNote.value = '-'
+    const rms = Math.sqrt(sumSquares / pdSize)
+    const silenceThreshold = 0.02 
+    
+    let detectedFreq = 0
+    
+    if (rms > silenceThreshold) {
+        // Use optimized YIN with confidence return
+        const result = getPitchYIN(buffer.slice(0, pdSize), sampleRate, 130, 2100)
+        const rawFreq = result.freq
+        const probability = result.probability
+        
+        // Confidence Gating (from MATLAB simulation)
+        if (rawFreq > 0 && probability > 0.90) {
+          freqHistory.push(rawFreq)
+          if (freqHistory.length > 5) freqHistory.shift()
+          const sorted = [...freqHistory].sort((a, b) => a - b)
+          detectedFreq = sorted[Math.floor(sorted.length / 2)]
+        }
+    } else {
+        if (freqHistory.length > 0) freqHistory.shift()
+    }
+    
+    if (detectedFreq > 0) {
+      const midiNum = 69 + 12 * Math.log2(detectedFreq / 440)
+      const roundedMidi = Math.round(midiNum)
+      const deviation = (midiNum - roundedMidi) * 100
+      
+      if (roundedMidi >= minNote && roundedMidi <= maxNote) {
+         dominantFreq.value = Math.round(detectedFreq)
+         dominantNote.value = getNoteLabel(roundedMidi)
+         
+         // --- C. Visualize Pitch Marker (Glowing Capsule) ---
+         const exactNormalizedY = (midiNum - minNote) / totalNotes
+         const yPos = height * (1 - exactNormalizedY)
+         
+         let color = '#EF4444'
+         let glowColor = 'transparent'
+         let glowBlur = 0
+         
+         const absDev = Math.abs(deviation)
+         if (absDev <= 10) {
+            color = '#10B981'; glowColor = '#10B981'; glowBlur = 10
+         } else if (absDev <= 30) {
+            color = '#F59E0B'; glowColor = '#F59E0B'; glowBlur = 5
+         }
+         
+         tempCtx.save()
+         tempCtx.fillStyle = color
+         tempCtx.shadowColor = glowColor
+         tempCtx.shadowBlur = glowBlur
+         
+         const dpr = window.devicePixelRatio || 1
+         const capsuleWidth = 12 * dpr
+         const capsuleHeight = 6 * dpr
+         // Align with spectrogram edge (width - 1)
+         const x = width - capsuleWidth - 1 
+         const y = yPos - capsuleHeight / 2
+         
+         tempCtx.beginPath()
+         tempCtx.roundRect(x, y, capsuleWidth, capsuleHeight, 3 * dpr)
+         tempCtx.fill()
+         tempCtx.restore()
+      }
+    } else {
+      dominantFreq.value = 0
+      dominantNote.value = '-'
+    }
   }
 
   // Draw Beat Marker
@@ -224,30 +244,42 @@ const drawSpectrogram = () => {
   ctx.drawImage(tempCanvas, 0, 0)
 }
 
-const getPitchYIN = (buf, sampleRate) => {
-  const threshold = 0.15
+/**
+ * Optimized YIN Algorithm
+ * Returns { freq, probability }
+ */
+const getPitchYIN = (buf, sampleRate, minFreq = 130, maxFreq = 2100) => {
+  const threshold = 0.10 // Tightened threshold
   const bufferSize = buf.length
-  const yinBuffer = new Float32Array(bufferSize / 2)
+  const maxTau = Math.floor(sampleRate / minFreq)
+  const minTau = Math.floor(sampleRate / maxFreq)
   
-  for (let t = 0; t < bufferSize / 2; t++) {
+  if (maxTau > bufferSize) return { freq: -1, probability: 0 }
+
+  const yinBuffer = new Float32Array(maxTau + 1)
+  
+  // 1. Difference Function
+  for (let t = 0; t <= maxTau; t++) {
     yinBuffer[t] = 0
-    for (let i = 0; i < bufferSize / 2; i++) {
+    for (let i = 0; i < bufferSize - maxTau; i++) {
       const delta = buf[i] - buf[i + t]
       yinBuffer[t] += delta * delta
     }
   }
   
+  // 2. Cumulative Mean Normalized Difference
   yinBuffer[0] = 1
   let runningSum = 0
-  for (let t = 1; t < bufferSize / 2; t++) {
+  for (let t = 1; t <= maxTau; t++) {
     runningSum += yinBuffer[t]
     yinBuffer[t] *= t / runningSum
   }
   
+  // 3. Absolute Threshold
   let tau = -1
-  for (let t = 2; t < bufferSize / 2; t++) {
+  for (let t = minTau; t <= maxTau; t++) {
     if (yinBuffer[t] < threshold) {
-      while (t + 1 < bufferSize / 2 && yinBuffer[t + 1] < yinBuffer[t]) {
+      while (t + 1 <= maxTau && yinBuffer[t + 1] < yinBuffer[t]) {
         t++
       }
       tau = t
@@ -255,10 +287,22 @@ const getPitchYIN = (buf, sampleRate) => {
     }
   }
   
-  if (tau === -1) return -1
+  if (tau === -1) return { freq: -1, probability: 0 }
   
-  const betterTau = parabolicInterpolation(yinBuffer, tau)
-  return sampleRate / betterTau
+  let probability = 1 - yinBuffer[tau]
+  
+  // Parabolic Interpolation
+  let betterTau = tau
+  if (tau > 0 && tau < maxTau) {
+    const s0 = yinBuffer[tau - 1]
+    const s1 = yinBuffer[tau]
+    const s2 = yinBuffer[tau + 1]
+    let adjustment = (s2 - s0) / (2 * (2 * s1 - s2 - s0))
+    betterTau = tau + adjustment
+    probability = 1 - s1 // Use the minimum value as probability metric
+  }
+  
+  return { freq: sampleRate / betterTau, probability }
 }
 
 const parabolicInterpolation = (array, x) => {
