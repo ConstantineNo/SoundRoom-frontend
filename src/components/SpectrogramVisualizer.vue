@@ -2,11 +2,7 @@
   <div class="spectrogram-container">
      <!-- Layer 1: Scrolling Spectrogram -->
      <canvas ref="spectrogramCanvas" class="spectrogram-canvas"></canvas>
-     
-     <!-- Layer 2: Static Grid Overlay -->
      <canvas ref="gridCanvas" class="grid-canvas"></canvas>
-     
-     <!-- Layer 3: Overlay Info -->
      <div class="analysis-overlay">
         <div class="analysis-stat">
            <span class="label">Note: </span>
@@ -14,6 +10,9 @@
            <span class="debug-info" style="font-size: 0.8rem; color: #888; margin-left: 10px;">
              ({{ dominantFreq }} Hz)
            </span>
+           <button @click="captureDebugLog" style="margin-left: 10px; font-size: 0.7rem; background: #333; color: #fff; border: 1px solid #555; padding: 2px 6px; cursor: pointer; pointer-events: auto;">
+               🐛 Debug
+           </button>
         </div>
      </div>
   </div>
@@ -22,6 +21,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as Tone from 'tone'
+import axios from 'axios'
 
 const props = defineProps({
   audioContext: Object,
@@ -368,6 +368,50 @@ onUnmounted(() => {
 defineExpose({
   resizeCanvases
 })
+
+const captureDebugLog = async () => {
+  if (!props.audioContext || !props.analyser) return
+  
+  const pdSize = 2048
+  const buffer = new Float32Array(pdSize)
+  props.analyser.getFloatTimeDomainData(buffer)
+  
+  // Calculate current metrics
+  let sumSquares = 0
+  for (let i = 0; i < pdSize; i++) sumSquares += buffer[i] * buffer[i]
+  const rms = Math.sqrt(sumSquares / pdSize)
+  
+  const result = getPitchYIN(buffer, props.audioContext.sampleRate, 130, 2100)
+  
+  const logData = {
+    timestamp: Date.now() / 1000,
+    userAgent: navigator.userAgent,
+    audioContext: {
+      sampleRate: props.audioContext.sampleRate,
+      state: props.audioContext.state,
+      baseLatency: props.audioContext.baseLatency || 0,
+      outputLatency: props.audioContext.outputLatency || 0
+    },
+    pitchInfo: {
+      rms: rms,
+      rawFreq: result.freq,
+      probability: result.probability,
+      detectedFreq: dominantFreq.value,
+      processingTimeMs: 0 // Placeholder
+    },
+    rawBuffer: Array.from(buffer), // Send raw buffer for MATLAB analysis
+    message: "User triggered debug snapshot"
+  }
+  
+  try {
+    await axios.post('/api/debug/log', logData)
+    console.log('Debug log sent successfully')
+    alert('Debug info sent to backend!')
+  } catch (e) {
+    console.error('Failed to send debug log', e)
+    alert('Failed to send debug info')
+  }
+}
 </script>
 
 <style scoped>
