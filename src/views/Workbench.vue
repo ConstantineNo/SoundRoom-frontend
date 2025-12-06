@@ -47,6 +47,14 @@
            :isMetronomeOn="isMetronomeOn"
            :lastBeatTime="lastBeatTime"
            :score="score"
+           :perfDebugEnabled="perfDebugEnabled"
+           @perf-sample="handlePerfSample"
+         />
+         <PerfMonitor
+           v-if="perfDebugAvailable"
+           :samples="perfSamples"
+           :enabled="perfDebugEnabled"
+           @toggle="togglePerfDebug"
          />
       </div>
     </div>
@@ -112,6 +120,7 @@ import { useMessage } from 'naive-ui'
 import { useUserStore } from '../stores/user'
 import MetronomePanel from '../components/MetronomePanel.vue'
 import SpectrogramVisualizer from '../components/SpectrogramVisualizer.vue'
+import PerfMonitor from '../components/debug/PerfMonitor.vue'
 
 const route = useRoute()
 const scoreId = route.params.scoreId
@@ -123,6 +132,10 @@ const recordedBlob = ref(null)
 const recordedAudioUrl = ref(null)
 const message = useMessage()
 const userStore = useUserStore()
+const perfDebugAvailable = import.meta.env.VITE_ENABLE_PERF_DEBUG === 'true'
+const perfDebugEnabled = ref(perfDebugAvailable)
+const perfSamples = ref([])
+const PERF_WINDOW = 300
 
 // UI State
 const isRackCollapsed = ref(window.innerWidth < 768)
@@ -375,6 +388,19 @@ const resizeCanvases = () => {
   }
   if (spectrogramRef.value) {
     spectrogramRef.value.resizeCanvases()
+  }
+}
+
+const handlePerfSample = (sample) => {
+  if (!perfDebugEnabled.value) return
+  perfSamples.value.push(sample)
+  if (perfSamples.value.length > PERF_WINDOW) perfSamples.value.shift()
+}
+
+const togglePerfDebug = () => {
+  perfDebugEnabled.value = !perfDebugEnabled.value
+  if (!perfDebugEnabled.value) {
+    perfSamples.value = []
   }
 }
 

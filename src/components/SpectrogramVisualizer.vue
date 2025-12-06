@@ -29,8 +29,14 @@ const props = defineProps({
   dataArray: Uint8Array,
   isMetronomeOn: Boolean,
   lastBeatTime: Number,
-  score: Object
+  score: Object,
+  perfDebugEnabled: {
+    type: Boolean,
+    default: false
+  }
 })
+
+const emit = defineEmits(['perf-sample'])
 
 const spectrogramCanvas = ref(null)
 const gridCanvas = ref(null)
@@ -42,6 +48,9 @@ let tempCanvas = null
 let tempCtx = null
 let colormap = []
 const freqHistory = []
+const perfDebugEnv = import.meta.env.VITE_ENABLE_PERF_DEBUG === 'true'
+let lastFrameTs = null
+let lastRafTs = null
 
 // Config
 const minNote = 48 // C3
@@ -113,16 +122,25 @@ const drawGrid = () => {
   }
 }
 
-const drawSpectrogram = () => {
+const drawSpectrogram = (rafTs) => {
   if (!spectrogramCanvas.value || !props.analyser) return
   
   animationId = requestAnimationFrame(drawSpectrogram)
+  const frameStart = performance.now()
+  const frameDt = lastFrameTs ? frameStart - lastFrameTs : 0
+  const rafLagMs = lastRafTs
+    ? Math.max(0, (rafTs ?? frameStart) - lastRafTs - 16.7)
+    : 0
+  lastFrameTs = frameStart
+  lastRafTs = rafTs ?? frameStart
   
+  const fftStart = performance.now()
   if (props.analyser && props.dataArray) {
     props.analyser.getByteFrequencyData(props.dataArray)
   } else {
     return // Skip drawing if no data
   }
+  const fftMs = performance.now() - fftStart
   
   const canvas = spectrogramCanvas.value
   const ctx = canvas.getContext('2d')
@@ -142,6 +160,7 @@ const drawSpectrogram = () => {
   tempCtx.drawImage(canvas, -1, 0)
   
   const sampleRate = props.audioContext.sampleRate
+  const drawStart = performance.now()
   
   // --- A. Draw Log-Scale Spectrogram Column ---
   for (let y = 0; y < height; y++) {
@@ -153,10 +172,15 @@ const drawSpectrogram = () => {
     tempCtx.fillStyle = colormap[value]
     tempCtx.fillRect(width - 1, y, 1, 1)
   }
+  const drawMs = performance.now() - drawStart
   
   // --- B. Pitch Detection (YIN Algorithm + Smoothing) ---
   // Optimization: Run pitch detection every 2 frames (30 FPS)
+  let pitchMs = 0
+  let pitchProb = undefined
+  let pitchFreq = undefined
   if (animationId % 2 === 0) {
+    const pitchStart = performance.now()
     const pdSize = 2048
     const buffer = new Float32Array(pdSize)
     props.analyser.getFloatTimeDomainData(buffer)
@@ -183,6 +207,7 @@ const drawSpectrogram = () => {
           if (freqHistory.length > 5) freqHistory.shift()
           const sorted = [...freqHistory].sort((a, b) => a - b)
           detectedFreq = sorted[Math.floor(sorted.length / 2)]
+          pitchProb = probability
         }
     } else {
         if (freqHistory.length > 0) freqHistory.shift()
@@ -228,11 +253,14 @@ const drawSpectrogram = () => {
          tempCtx.roundRect(x, y, capsuleWidth, capsuleHeight, 3 * dpr)
          tempCtx.fill()
          tempCtx.restore()
+         
+         pitchFreq = detectedFreq
       }
     } else {
       dominantFreq.value = 0
       dominantNote.value = '-'
     }
+    pitchMs = performance.now() - pitchStart
   }
 
   // Draw Beat Marker
@@ -242,6 +270,21 @@ const drawSpectrogram = () => {
   }
   
   ctx.drawImage(tempCanvas, 0, 0)
+  
+  if (perfDebugEnv && props.perfDebugEnabled) {
+    const sample = {
+      ts: frameStart,
+      frameDt,
+      totalMs: performance.now() - frameStart,
+      fftMs,
+      drawMs,
+      pitchMs,
+      rafLagMs,
+      pitchProb,
+      pitchFreq
+    }
+    emit('perf-sample', sample)
+  }
 }
 
 /**
