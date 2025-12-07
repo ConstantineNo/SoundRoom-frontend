@@ -5,6 +5,9 @@
       <div class="module-status" :class="{ active: isMetronomeOn }"></div>
     </div>
     <div class="bpm-display">{{ bpm }} <span class="bpm-label">BPM</span></div>
+    <div class="bpm-input">
+      <n-input-number v-model:value="bpm" :min="40" :max="208" :step="1" size="small" />
+    </div>
     <div class="knob-control">
        <n-slider v-model:value="bpm" :min="40" :max="208" :step="1" vertical style="height: 100px;" />
     </div>
@@ -19,7 +22,7 @@
 <script setup>
 import { ref, watch, onUnmounted } from 'vue'
 import * as Tone from 'tone'
-import { NSlider } from 'naive-ui'
+import { NSlider, NInputNumber } from 'naive-ui'
 
 const props = defineProps({
   onBeat: Function
@@ -104,6 +107,7 @@ defineExpose({
 .module-title { font-size: 0.8rem; font-weight: 700; color: #666; letter-spacing: 1px; }
 .bpm-display { font-family: 'Roboto Mono', monospace; font-size: 2.5rem; color: #50C878; font-weight: bold; }
 .bpm-label { font-size: 0.8rem; color: #666; }
+.bpm-input { width: 100%; }
 .rack-btn { background: #333; border: none; color: #fff; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
 .rack-btn.primary { background: #50C878; color: #000; }
 .rack-btn:hover { filter: brightness(1.1); }

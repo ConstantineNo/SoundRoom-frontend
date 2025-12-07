@@ -161,6 +161,13 @@ const drawGrid = (canvas) => {
 
 const getWindowDurationMs = () => (measuresPerScreen * beatsPerMeasure * 60000) / props.bpm
 
+const resetScreens = () => {
+  activeScreen = 0
+  screenStartTime = performance.now()
+  clearScreen(0)
+  clearScreen(1)
+}
+
 const clearScreen = (index) => {
   const canvas = spectrogramCanvases[index].value
   const grid = gridCanvases[index].value
@@ -427,7 +434,7 @@ const togglePause = () => {
     if (animationId) cancelAnimationFrame(animationId)
     animationId = null
   } else {
-    screenStartTime = performance.now()
+    resetScreens()
     animationId = requestAnimationFrame(drawSpectrogram)
   }
 }
@@ -442,9 +449,11 @@ const handleKeydown = (e) => {
 watch(
   () => props.bpm,
   () => {
-    screenStartTime = performance.now()
-    clearScreen(0)
-    clearScreen(1)
+    resetScreens()
+    if (!isPaused.value) {
+      if (animationId) cancelAnimationFrame(animationId)
+      animationId = requestAnimationFrame(drawSpectrogram)
+    }
   }
 )
 
