@@ -65,7 +65,8 @@ onUnmounted(() => {
 })
 
 defineExpose({
-  isMetronomeOn
+  isMetronomeOn,
+  bpm
 })
 </script>
 

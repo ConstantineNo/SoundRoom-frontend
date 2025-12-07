@@ -1,20 +1,25 @@
 <template>
-  <div class="spectrogram-container">
-     <!-- Layer 1: Scrolling Spectrogram -->
-     <canvas ref="spectrogramCanvas" class="spectrogram-canvas"></canvas>
-     <canvas ref="gridCanvas" class="grid-canvas"></canvas>
-     <div class="analysis-overlay">
-        <div class="analysis-stat">
-           <span class="label">Note: </span>
-           <span class="value">{{ dominantNote }}</span>
-           <span class="debug-info" style="font-size: 0.8rem; color: #888; margin-left: 10px;">
-             ({{ dominantFreq }} Hz)
-           </span>
-           <button @click="captureDebugLog" style="margin-left: 10px; font-size: 0.7rem; background: #333; color: #fff; border: 1px solid #555; padding: 2px 6px; cursor: pointer; pointer-events: auto;">
-               🐛 Debug
-           </button>
-        </div>
-     </div>
+  <div class="spectrogram-container" ref="containerRef">
+    <div class="screen">
+      <canvas ref="spectrogramCanvasA" class="spectrogram-canvas"></canvas>
+      <canvas ref="gridCanvasA" class="grid-canvas"></canvas>
+    </div>
+    <div class="screen">
+      <canvas ref="spectrogramCanvasB" class="spectrogram-canvas"></canvas>
+      <canvas ref="gridCanvasB" class="grid-canvas"></canvas>
+    </div>
+    <div class="analysis-overlay">
+      <div class="analysis-stat">
+        <span class="label">Note: </span>
+        <span class="value">{{ dominantNote }}</span>
+        <span class="debug-info">({{ dominantFreq }} Hz)</span>
+        <span class="debug-info">Vol: {{ volumeDb }} dB</span>
+        <button class="overlay-btn" @click="togglePause">
+          {{ isPaused ? '继续' : '暂停' }}
+        </button>
+        <button class="overlay-btn" @click="captureDebugLog">🐛 Debug</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -30,6 +35,10 @@ const props = defineProps({
   isMetronomeOn: Boolean,
   lastBeatTime: Number,
   score: Object,
+  bpm: {
+    type: Number,
+    default: 90
+  },
   perfDebugEnabled: {
     type: Boolean,
     default: false
@@ -38,19 +47,28 @@ const props = defineProps({
 
 const emit = defineEmits(['perf-sample'])
 
-const spectrogramCanvas = ref(null)
-const gridCanvas = ref(null)
+const containerRef = ref(null)
+const spectrogramCanvasA = ref(null)
+const spectrogramCanvasB = ref(null)
+const gridCanvasA = ref(null)
+const gridCanvasB = ref(null)
+const spectrogramCanvases = [spectrogramCanvasA, spectrogramCanvasB]
+const gridCanvases = [gridCanvasA, gridCanvasB]
 const dominantNote = ref('-')
 const dominantFreq = ref(0)
+const volumeDb = ref('-')
 
 let animationId = null
-let tempCanvas = null
-let tempCtx = null
 let colormap = []
 const freqHistory = []
 const perfDebugEnv = import.meta.env.VITE_ENABLE_PERF_DEBUG === 'true'
 let lastFrameTs = null
 let lastRafTs = null
+const isPaused = ref(false)
+let activeScreen = 0
+let screenStartTime = performance.now()
+const beatsPerMeasure = 4
+const measuresPerScreen = 6
 
 // Config
 const minNote = 48 // C3
@@ -78,15 +96,15 @@ const initColormap = () => {
   }
 }
 
-const drawGrid = () => {
-  if (!gridCanvas.value) return
-  const canvas = gridCanvas.value
+const drawGrid = (canvas) => {
+  if (!canvas) return
   const ctx = canvas.getContext('2d')
   const width = canvas.width
   const height = canvas.height
   
   ctx.clearRect(0, 0, width, height)
   
+  // Horizontal pitch grid
   ctx.font = '10px Roboto Mono'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
@@ -120,10 +138,49 @@ const drawGrid = () => {
      ctx.lineTo(width, y)
      ctx.stroke()
   }
+
+  // Vertical beat/measure grid: 6 measures, 4/4
+  const totalBeats = beatsPerMeasure * measuresPerScreen
+  for (let b = 0; b <= totalBeats; b++) {
+    const x = (b / totalBeats) * width
+    const isMeasure = b % beatsPerMeasure === 0
+    ctx.beginPath()
+    ctx.strokeStyle = isMeasure ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.12)'
+    ctx.lineWidth = isMeasure ? 2 : 1
+    ctx.setLineDash(isMeasure ? [] : [4, 6])
+    ctx.moveTo(x, 0)
+    ctx.lineTo(x, height)
+    ctx.stroke()
+    if (isMeasure) {
+      const measureIndex = b / beatsPerMeasure + 1
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'
+      ctx.fillText(`M${measureIndex}`, x + 4, 12)
+    }
+  }
+}
+
+const getWindowDurationMs = () => (measuresPerScreen * beatsPerMeasure * 60000) / props.bpm
+
+const clearScreen = (index) => {
+  const canvas = spectrogramCanvases[index].value
+  const grid = gridCanvases[index].value
+  if (!canvas || !grid) return
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  drawGrid(grid)
+}
+
+const switchScreen = () => {
+  activeScreen = activeScreen === 0 ? 1 : 0
+  screenStartTime = performance.now()
+  clearScreen(activeScreen)
 }
 
 const drawSpectrogram = (rafTs) => {
-  if (!spectrogramCanvas.value || !props.analyser) return
+  if (!spectrogramCanvases[activeScreen].value || !props.analyser || isPaused.value) {
+    return
+  }
   
   animationId = requestAnimationFrame(drawSpectrogram)
   const frameStart = performance.now()
@@ -142,119 +199,84 @@ const drawSpectrogram = (rafTs) => {
   }
   const fftMs = performance.now() - fftStart
   
-  const canvas = spectrogramCanvas.value
+  const canvas = spectrogramCanvases[activeScreen].value
   const ctx = canvas.getContext('2d')
   const width = canvas.width
   const height = canvas.height
   
-  if (!tempCanvas) {
-    tempCanvas = document.createElement('canvas')
-    tempCanvas.width = width
-    tempCanvas.height = height
-    tempCtx = tempCanvas.getContext('2d')
-    tempCtx.fillStyle = '#000'
-    tempCtx.fillRect(0, 0, width, height)
+  const windowMs = getWindowDurationMs()
+  const elapsedMs = frameStart - screenStartTime
+  if (elapsedMs >= windowMs) {
+    switchScreen()
+    return
   }
-  
-  // Shift existing image
-  tempCtx.drawImage(canvas, -1, 0)
+  const x = Math.floor((elapsedMs / windowMs) * width)
   
   const sampleRate = props.audioContext.sampleRate
   const drawStart = performance.now()
   
-  // --- A. Draw Log-Scale Spectrogram Column ---
+  // Draw spectrogram column onto active screen
   for (let y = 0; y < height; y++) {
-    const normalizedY = 1 - (y / height)
+    const normalizedY = 1 - y / height
     const noteNum = minNote + normalizedY * totalNotes
     const freq = 440 * Math.pow(2, (noteNum - 69) / 12)
-    const binIndex = Math.floor(freq * props.analyser.fftSize / sampleRate)
+    const binIndex = Math.floor((freq * props.analyser.fftSize) / sampleRate)
     const value = props.dataArray[binIndex] || 0
-    tempCtx.fillStyle = colormap[value]
-    tempCtx.fillRect(width - 1, y, 1, 1)
+    ctx.fillStyle = colormap[value]
+    ctx.fillRect(x, y, 1, 1)
   }
   const drawMs = performance.now() - drawStart
   
-  // --- B. Pitch Detection (YIN Algorithm + Smoothing) ---
-  // Optimization: Run pitch detection every 2 frames (30 FPS)
+  // --- B. Pitch Detection & Volume ---
   let pitchMs = 0
   let pitchProb = undefined
   let pitchFreq = undefined
+  const pdSize = 2048
+  const buffer = new Float32Array(pdSize)
+  props.analyser.getFloatTimeDomainData(buffer)
+  
+  // Volume
+  let sumSquares = 0
+  for (let i = 0; i < pdSize; i++) sumSquares += buffer[i] * buffer[i]
+  const rms = Math.sqrt(sumSquares / pdSize)
+  volumeDb.value = rms > 0 ? (20 * Math.log10(rms)).toFixed(1) : '-inf'
+  
+  // Pitch detection every other frame
   if (animationId % 2 === 0) {
     const pitchStart = performance.now()
-    const pdSize = 2048
-    const buffer = new Float32Array(pdSize)
-    props.analyser.getFloatTimeDomainData(buffer)
-    
-    // 1. Calculate RMS for silence detection
-    let sumSquares = 0
-    for (let i = 0; i < pdSize; i++) {
-       sumSquares += buffer[i] * buffer[i]
-    }
-    const rms = Math.sqrt(sumSquares / pdSize)
-    const silenceThreshold = 0.02 
-    
     let detectedFreq = 0
-    
+    const silenceThreshold = 0.02
     if (rms > silenceThreshold) {
-        // Use optimized YIN with confidence return
-        const result = getPitchYIN(buffer.slice(0, pdSize), sampleRate, 130, 2100)
-        const rawFreq = result.freq
-        const probability = result.probability
-        
-        // Confidence Gating (from MATLAB simulation)
-        if (rawFreq > 0 && probability > 0.90) {
-          freqHistory.push(rawFreq)
-          if (freqHistory.length > 5) freqHistory.shift()
-          const sorted = [...freqHistory].sort((a, b) => a - b)
-          detectedFreq = sorted[Math.floor(sorted.length / 2)]
-          pitchProb = probability
-        }
-    } else {
-        if (freqHistory.length > 0) freqHistory.shift()
+      const result = getPitchYIN(buffer.slice(0, pdSize), sampleRate, 130, 2100)
+      const rawFreq = result.freq
+      const probability = result.probability
+      if (rawFreq > 0 && probability > 0.9) {
+        freqHistory.push(rawFreq)
+        if (freqHistory.length > 5) freqHistory.shift()
+        const sorted = [...freqHistory].sort((a, b) => a - b)
+        detectedFreq = sorted[Math.floor(sorted.length / 2)]
+        pitchProb = probability
+      }
+    } else if (freqHistory.length > 0) {
+      freqHistory.shift()
     }
-    
+
     if (detectedFreq > 0) {
       const midiNum = 69 + 12 * Math.log2(detectedFreq / 440)
       const roundedMidi = Math.round(midiNum)
       const deviation = (midiNum - roundedMidi) * 100
-      
       if (roundedMidi >= minNote && roundedMidi <= maxNote) {
-         dominantFreq.value = Math.round(detectedFreq)
-         dominantNote.value = getNoteLabel(roundedMidi)
-         
-         // --- C. Visualize Pitch Marker (Glowing Capsule) ---
-         const exactNormalizedY = (midiNum - minNote) / totalNotes
-         const yPos = height * (1 - exactNormalizedY)
-         
-         let color = '#EF4444'
-         let glowColor = 'transparent'
-         let glowBlur = 0
-         
-         const absDev = Math.abs(deviation)
-         if (absDev <= 10) {
-            color = '#10B981'; glowColor = '#10B981'; glowBlur = 10
-         } else if (absDev <= 30) {
-            color = '#F59E0B'; glowColor = '#F59E0B'; glowBlur = 5
-         }
-         
-         tempCtx.save()
-         tempCtx.fillStyle = color
-         tempCtx.shadowColor = glowColor
-         tempCtx.shadowBlur = glowBlur
-         
-         const dpr = window.devicePixelRatio || 1
-         const capsuleWidth = 12 * dpr
-         const capsuleHeight = 6 * dpr
-         // Align with spectrogram edge (width - 1)
-         const x = width - capsuleWidth - 1 
-         const y = yPos - capsuleHeight / 2
-         
-         tempCtx.beginPath()
-         tempCtx.roundRect(x, y, capsuleWidth, capsuleHeight, 3 * dpr)
-         tempCtx.fill()
-         tempCtx.restore()
-         
-         pitchFreq = detectedFreq
+        dominantFreq.value = Math.round(detectedFreq)
+        dominantNote.value = getNoteLabel(roundedMidi)
+        const exactNormalizedY = (midiNum - minNote) / totalNotes
+        const yPos = height * (1 - exactNormalizedY)
+        let color = '#EF4444'
+        const absDev = Math.abs(deviation)
+        if (absDev <= 10) color = '#10B981'
+        else if (absDev <= 30) color = '#F59E0B'
+        ctx.fillStyle = color
+        ctx.fillRect(x - 1, yPos - 2, 3, 4)
+        pitchFreq = detectedFreq
       }
     } else {
       dominantFreq.value = 0
@@ -262,14 +284,12 @@ const drawSpectrogram = (rafTs) => {
     }
     pitchMs = performance.now() - pitchStart
   }
-
-  // Draw Beat Marker
-  if (props.isMetronomeOn && Date.now() - props.lastBeatTime < 50) { 
-    tempCtx.fillStyle = 'rgba(255, 255, 255, 0.5)'
-    tempCtx.fillRect(width - 1, 0, 1, height)
-  }
   
-  ctx.drawImage(tempCanvas, 0, 0)
+  // Beat marker
+  if (props.isMetronomeOn && Date.now() - props.lastBeatTime < 50) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
+    ctx.fillRect(x, 0, 1, height)
+  }
   
   if (perfDebugEnv && props.perfDebugEnabled) {
     const sample = {
@@ -382,30 +402,69 @@ const getNoteLabel = (midiNum) => {
 }
 
 const resizeCanvases = () => {
-  if (spectrogramCanvas.value) {
-    spectrogramCanvas.value.width = spectrogramCanvas.value.offsetWidth
-    spectrogramCanvas.value.height = spectrogramCanvas.value.offsetHeight
-    tempCanvas = null
-  }
-  if (gridCanvas.value) {
-    gridCanvas.value.width = gridCanvas.value.offsetWidth
-    gridCanvas.value.height = gridCanvas.value.offsetHeight
-    drawGrid()
+  if (!containerRef.value) return
+  const width = containerRef.value.offsetWidth
+  const height = containerRef.value.offsetHeight / 2
+  spectrogramCanvases.forEach((c) => {
+    if (c.value) {
+      c.value.width = width
+      c.value.height = height
+    }
+  })
+  gridCanvases.forEach((c) => {
+    if (c.value) {
+      c.value.width = width
+      c.value.height = height
+    }
+  })
+  clearScreen(0)
+  clearScreen(1)
+}
+
+const togglePause = () => {
+  isPaused.value = !isPaused.value
+  if (isPaused.value) {
+    if (animationId) cancelAnimationFrame(animationId)
+    animationId = null
+  } else {
+    screenStartTime = performance.now()
+    animationId = requestAnimationFrame(drawSpectrogram)
   }
 }
 
+const handleKeydown = (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault()
+    togglePause()
+  }
+}
+
+watch(
+  () => props.bpm,
+  () => {
+    screenStartTime = performance.now()
+    clearScreen(0)
+    clearScreen(1)
+  }
+)
+
 onMounted(() => {
   initColormap()
-  // Ensure canvases are sized before starting loop
   nextTick(() => {
     resizeCanvases()
-    drawSpectrogram()
+    screenStartTime = performance.now()
+    clearScreen(0)
+    clearScreen(1)
+    animationId = requestAnimationFrame(drawSpectrogram)
   })
+  window.addEventListener('resize', resizeCanvases)
+  window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
   if (animationId) cancelAnimationFrame(animationId)
   window.removeEventListener('resize', resizeCanvases)
+  window.removeEventListener('keydown', handleKeydown)
 })
 
 defineExpose({
@@ -459,18 +518,29 @@ const captureDebugLog = async () => {
 
 <style scoped>
 .spectrogram-container {
+  position: relative;
   width: 100%;
   height: 100%;
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   background-color: #000;
 }
 
-.spectrogram-canvas, .grid-canvas {
-  width: 100%;
-  height: 100%;
+.screen {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: #000;
+}
+
+.spectrogram-canvas,
+.grid-canvas {
   position: absolute;
   top: 0;
   left: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .spectrogram-canvas {
@@ -484,18 +554,41 @@ const captureDebugLog = async () => {
 
 .analysis-overlay {
   position: absolute;
-  top: 16px;
-  left: 16px;
-  background: rgba(0,0,0,0.5);
-  padding: 8px 16px;
+  top: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 8px 12px;
   border-radius: 8px;
   pointer-events: none;
-  z-index: 3;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .analysis-stat {
   font-family: 'Roboto Mono', monospace;
   color: #50C878;
-  font-size: 1.2rem;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.debug-info {
+  color: #a5b4fc;
+  font-size: 0.85rem;
+}
+
+.overlay-btn {
+  pointer-events: auto;
+  background: #1f2937;
+  color: #e5e7eb;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
 }
 </style>
+

@@ -47,6 +47,7 @@
            :isMetronomeOn="isMetronomeOn"
            :lastBeatTime="lastBeatTime"
            :score="score"
+           :bpm="metronomeBpm"
            :perfDebugEnabled="perfDebugEnabled"
            @perf-sample="handlePerfSample"
          />
@@ -153,6 +154,7 @@ const startY = ref(0)
 const metronomeRef = ref(null)
 const isMetronomeOn = computed(() => metronomeRef.value?.isMetronomeOn || false)
 const lastBeatTime = ref(0)
+const metronomeBpm = computed(() => metronomeRef.value?.bpm?.value || 90)
 
 const onBeat = (time) => {
   lastBeatTime.value = time
