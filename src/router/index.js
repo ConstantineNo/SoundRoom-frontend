@@ -4,6 +4,7 @@ import Register from '../views/Register.vue'
 import Library from '../views/Library.vue'
 import Playlist from '../views/Playlist.vue'
 import Workbench from '../views/Workbench.vue'
+import Editor from '../views/Editor.vue'
 
 const routes = [
     { path: '/login', component: Login },
@@ -11,6 +12,7 @@ const routes = [
     { path: '/library', component: Library },
     { path: '/playlist', component: Playlist },
     { path: '/practice/:scoreId', component: Workbench },
+    { path: '/editor/:scoreId', component: Editor },
     { path: '/', redirect: '/library' }
 ]
 
