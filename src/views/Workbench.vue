@@ -112,7 +112,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, watchEffect, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import WaveSurfer from 'wavesurfer.js'
@@ -154,11 +154,17 @@ const startY = ref(0)
 const metronomeRef = ref(null)
 const isMetronomeOn = computed(() => metronomeRef.value?.isMetronomeOn || false)
 const lastBeatTime = ref(0)
-const metronomeBpm = computed(() => metronomeRef.value?.bpm?.value || 90)
+const metronomeBpm = ref(90)
 
 const onBeat = (time) => {
   lastBeatTime.value = time
 }
+
+watchEffect(() => {
+  if (metronomeRef.value?.bpm) {
+    metronomeBpm.value = metronomeRef.value.bpm.value
+  }
+})
 
 // Spectrum & Spectrogram State
 const spectrumCanvas = ref(null)
