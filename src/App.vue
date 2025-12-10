@@ -3,9 +3,9 @@
     <n-message-provider>
       <n-dialog-provider>
         <n-notification-provider>
-          <n-layout style="height: 100vh">
+          <n-layout style="height: 100vh; display: flex; flex-direction: column;">
             <n-layout-header bordered style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
-              <div style="font-size: 1.2rem; font-weight: bold;">竹笛智能练习平台</div>
+              <div style="font-size: 1.2rem; font-weight: bold;">乐器学习一步到位</div>
               <n-space align="center">
                 <router-link to="/library"><n-button text>曲谱库</n-button></router-link>
                 <router-link v-if="userStore.isLoggedIn" to="/playlist"><n-button text>播放列表</n-button></router-link>
@@ -15,13 +15,20 @@
                 </div>
                 <div v-else>
                   <router-link to="/login"><n-button text>登录</n-button></router-link>
-                  <router-link to="/register"><n-button text>注册</n-button></router-link>
                 </div>
               </n-space>
             </n-layout-header>
-            <n-layout-content content-style="padding: 24px;">
+            <n-layout-content content-style="padding: 24px; flex: 1;">
               <router-view />
             </n-layout-content>
+            <n-layout-footer bordered style="padding: 10px; text-align: center;">
+              <div>&copy; 2025 乐器学习一步到位</div>
+              <div style="margin-top: 5px;">
+                <a href="https://beian.miit.gov.cn/" target="_blank" style="text-decoration: none; color: inherit;">
+                  ICP备案号：粤ICP备2025505237号-1
+                </a>
+              </div>
+            </n-layout-footer>
           </n-layout>
         </n-notification-provider>
       </n-dialog-provider>
@@ -38,6 +45,7 @@ import {
   NLayout, 
   NLayoutHeader, 
   NLayoutContent, 
+  NLayoutFooter,
   NSpace, 
   NButton 
 } from 'naive-ui'
