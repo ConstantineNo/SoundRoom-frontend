@@ -3,7 +3,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h2>曲谱库</h2>
       <n-space>
-        <n-button v-if="userStore.isLoggedIn" @click="showCreateModal = true">录入新谱</n-button>
+
         <n-button v-if="userStore.isLoggedIn" type="primary" @click="showUploadModal = true">上传曲谱</n-button>
       </n-space>
     </div>
@@ -56,28 +56,7 @@
       </n-card>
     </n-modal>
 
-    <!-- Create Score Modal -->
-    <n-modal v-model:show="showCreateModal">
-      <n-card style="width: 500px" title="录入新谱 (ABC)" :bordered="false" size="huge" role="dialog" aria-modal="true">
-        <n-form>
-          <n-form-item label="曲名 (Title)" required>
-            <n-input v-model:value="createForm.title" placeholder="如: 茉莉花" />
-          </n-form-item>
-          <n-form-item label="调性 (Key)">
-            <n-input v-model:value="createForm.song_key" placeholder="如: C, Dm, G..." />
-          </n-form-item>
-          <n-form-item label="作曲家 (Composer)">
-            <n-input v-model:value="createForm.composer" placeholder="选填" />
-          </n-form-item>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="showCreateModal = false">取消</n-button>
-            <n-button type="primary" @click="handleCreateScore" :loading="creating">创建</n-button>
-          </n-space>
-        </template>
-      </n-card>
-    </n-modal>
+
   </div>
 </template>
 
@@ -90,9 +69,7 @@ import { useUserStore } from '../stores/user'
 
 const scores = ref([])
 const showUploadModal = ref(false)
-const showCreateModal = ref(false)
 const uploading = ref(false)
-const creating = ref(false)
 const router = useRouter()
 const message = useMessage()
 const userStore = useUserStore()
@@ -106,11 +83,7 @@ const uploadForm = ref({
   audio: null
 })
 
-const createForm = ref({
-  title: '',
-  song_key: 'C', // Default to C as per prompt suggestion
-  composer: ''
-})
+
 
 const fetchScores = async () => {
   try {
@@ -167,44 +140,6 @@ const handleUpload = async () => {
   }
 }
 
-const handleCreateScore = async () => {
-  if (!createForm.value.title) {
-    message.warning('请输入曲名')
-    return
-  }
-  
-  creating.value = true
-  try {
-    // Assuming backend accepts simple JSON to create a shell score
-    // The prompt says: Call POST /api/scores -> Get id -> Redirect
-    const response = await axios.post('/api/scores/create-shell', {
-      title: createForm.value.title,
-      song_key: createForm.value.song_key,
-      composer: createForm.value.composer
-    }, {
-      headers: {
-        'Authorization': `Bearer ${userStore.token}`
-      }
-    })
-    
-    // NOTE: If the backend actually uses the same endpoint /api/scores for both, 
-    // it usually differentiates by content-type or body fields. 
-    // I am using a specific path or payload structure. 
-    // If standard POST /api/scores expects FormData, this might fail unless backend handles JSON too.
-    // I will try standard path first, if logic differs, might need separate endpoint.
-    // Let's stick to the prompt's implied simple POST.
-    
-    const scoreId = response.data.id
-    message.success('创建成功')
-    showCreateModal.value = false
-    router.push(`/editor/${scoreId}`)
-  } catch (error) {
-    console.error(error)
-    message.error('创建失败: ' + (error.response?.data?.detail || error.message))
-  } finally {
-    creating.value = false
-  }
-}
 
 const goToPractice = (id) => {
   router.push(`/practice/${id}`)

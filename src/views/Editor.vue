@@ -142,7 +142,7 @@ const saveScore = async () => {
   saving.value = true
   try {
     await axios.put(`/api/scores/${scoreId}/abc`, {
-      abc_code: abcCode.value
+      abc_content: abcCode.value
     }, {
       headers: { 'Authorization': `Bearer ${userStore.token}` }
     })
