@@ -4,7 +4,7 @@
       <h2>曲谱库</h2>
       <n-space>
 
-        <n-button v-if="userStore.isLoggedIn" type="primary" @click="showUploadModal = true">上传曲谱</n-button>
+        <n-button v-if="userStore.isLoggedIn" type="primary" @click="openUploadModal">上传曲谱</n-button>
       </n-space>
     </div>
 
@@ -19,6 +19,7 @@
             <n-tag>笛子: {{ score.flute_key }}</n-tag>
             <n-tag>指法: {{ score.fingering }}</n-tag>
             <n-button block secondary type="info" @click="goToPractice(score.id)">进入练习</n-button>
+            <n-button v-if="userStore.isLoggedIn" block secondary type="warning" @click="goToEditor(score.id)">编辑曲谱</n-button>
             <n-button v-if="userStore.isLoggedIn" block secondary @click="addToPlaylist(score.id)">加入列表</n-button>
           </n-space>
         </n-card>
@@ -26,7 +27,7 @@
     </n-grid>
 
     <n-modal v-model:show="showUploadModal">
-      <n-card style="width: 600px" title="上传新曲谱" :bordered="false" size="huge" role="dialog" aria-modal="true">
+      <n-card style="width: 600px" :title="isEditing ? '编辑曲谱' : '上传新曲谱'" :bordered="false" size="huge" role="dialog" aria-modal="true">
         <n-form>
           <n-form-item label="曲名" required>
             <n-input v-model:value="uploadForm.title" placeholder="请输入曲名" />
@@ -50,7 +51,7 @@
         <template #footer>
           <n-space justify="end">
             <n-button @click="showUploadModal = false">取消</n-button>
-            <n-button type="primary" @click="handleUpload" :loading="uploading">上传</n-button>
+            <n-button type="primary" @click="handleUpload" :loading="uploading">{{ isEditing ? '保存' : '上传' }}</n-button>
           </n-space>
         </template>
       </n-card>
@@ -70,6 +71,8 @@ import { useUserStore } from '../stores/user'
 const scores = ref([])
 const showUploadModal = ref(false)
 const uploading = ref(false)
+const isEditing = ref(false)
+const currentScoreId = ref(null)
 const router = useRouter()
 const message = useMessage()
 const userStore = useUserStore()
@@ -108,9 +111,41 @@ const handleAudioChange = (event) => {
   uploadForm.value.audio = event.target.files[0]
 }
 
+const openUploadModal = () => {
+  isEditing.value = false
+  currentScoreId.value = null
+  uploadForm.value = {
+    title: '',
+    song_key: '',
+    flute_key: '',
+    fingering: '',
+    image: null,
+    audio: null
+  }
+  showUploadModal.value = true
+}
+
+const openEditModal = (score) => {
+  isEditing.value = true
+  currentScoreId.value = score.id
+  uploadForm.value = {
+    title: score.title,
+    song_key: score.song_key,
+    flute_key: score.flute_key,
+    fingering: score.fingering,
+    image: null,
+    audio: null
+  }
+  showUploadModal.value = true
+}
+
 const handleUpload = async () => {
-  if (!uploadForm.value.title || !uploadForm.value.song_key || !uploadForm.value.flute_key || !uploadForm.value.fingering || !uploadForm.value.image || !uploadForm.value.audio) {
-    message.warning('请填写完整信息并上传文件')
+  if (!uploadForm.value.title || !uploadForm.value.song_key || !uploadForm.value.flute_key || !uploadForm.value.fingering) {
+    message.warning('请填写完整信息')
+    return
+  }
+  if (!isEditing.value && (!uploadForm.value.image || !uploadForm.value.audio)) {
+    message.warning('请上传文件')
     return
   }
   
@@ -120,21 +155,28 @@ const handleUpload = async () => {
   formData.append('song_key', uploadForm.value.song_key)
   formData.append('flute_key', uploadForm.value.flute_key)
   formData.append('fingering', uploadForm.value.fingering)
-  formData.append('image', uploadForm.value.image)
-  formData.append('audio', uploadForm.value.audio)
+  if (uploadForm.value.image) formData.append('image', uploadForm.value.image)
+  if (uploadForm.value.audio) formData.append('audio', uploadForm.value.audio)
   
   try {
-    await axios.post('/api/scores/', formData, {
+    const config = {
       headers: {
         'Content-Type': 'multipart/form-data',
         'Authorization': `Bearer ${userStore.token}`
       }
-    })
-    message.success('上传成功')
+    }
+
+    if (isEditing.value) {
+      await axios.put(`/api/scores/${currentScoreId.value}`, formData, config)
+      message.success('修改成功')
+    } else {
+      await axios.post('/api/scores/', formData, config)
+      message.success('上传成功')
+    }
     showUploadModal.value = false
     fetchScores()
   } catch (error) {
-    message.error('上传失败')
+    message.error(isEditing.value ? '修改失败' : '上传失败')
   } finally {
     uploading.value = false
   }
@@ -143,6 +185,10 @@ const handleUpload = async () => {
 
 const goToPractice = (id) => {
   router.push(`/practice/${id}`)
+}
+
+const goToEditor = (id) => {
+  router.push(`/editor/${id}`)
 }
 
 const addToPlaylist = async (scoreId) => {

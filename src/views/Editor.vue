@@ -2,7 +2,7 @@
   <div class="editor-container">
     <div class="header">
       <div class="left">
-        <n-button secondary @click="$router.push('/scores')">
+        <n-button secondary @click="$router.push('/library')">
           <template #icon><n-icon><ArrowBack /></n-icon></template>
           返回列表
         </n-button>
@@ -30,18 +30,19 @@
       
       <!-- Right: Preview -->
       <div class="pane right-pane">
-        <div id="paper" class="paper-container"></div>
         <div id="audio" class="audio-container"></div>
+        <div id="paper" class="paper-container"></div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import abcjs from 'abcjs'
+import 'abcjs/abcjs-audio.css'
 import { useMessage, NButton, NIcon } from 'naive-ui'
 import { ArrowBack } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
@@ -56,6 +57,8 @@ const score = ref(null)
 const abcCode = ref('')
 const saving = ref(false)
 const syntaxError = ref('')
+
+let synthControl = null
 
 // Default template if empty
 const DEFAULT_TEMPLATE = `X:1
@@ -76,39 +79,52 @@ const debounce = (fn, delay) => {
 const renderAbc = debounce(() => {
   syntaxError.value = ''
   try {
-    abcjs.renderAbc("paper", abcCode.value, {
+    const visualObj = abcjs.renderAbc("paper", abcCode.value, {
       responsive: "resize",
       add_classes: true
     })
     
     // Setup audio synth
-    if (abcjs.synth.supportsAudio()) {
-      const synthControl = new abcjs.synth.SynthController();
-      synthControl.load("#audio", null, {
-        displayLoop: true,
-        displayRestart: true,
-        displayPlay: true,
-        displayProgress: true,
-        displayWarp: true
-      });
+    if (abcjs.synth.supportsAudio() && visualObj && visualObj[0]) {
+      // Check if there is any music to play
+      // Ensure duration is positive and significant enough to generate frames
+      if (visualObj[0].getTotalTime() < 0.01) {
+        return
+      }
+
+      if (!synthControl) {
+        synthControl = new abcjs.synth.SynthController();
+        synthControl.load("#audio", null, {
+          displayLoop: true,
+          displayRestart: true,
+          displayPlay: true,
+          displayProgress: true,
+          displayWarp: false // Disable warp to avoid potential issues
+        });
+      } else {
+        // Important: Disable before updating to prevent race conditions
+        synthControl.disable(true);
+      }
       
       const createSynth = new abcjs.synth.CreateSynth();
-      createSynth.init({ visualObj: abcjs.renderAbc("paper", abcCode.value)[0] })
+      createSynth.init({ visualObj: visualObj[0] })
         .then(() => {
-            synthControl.setTune(abcjs.renderAbc("paper", abcCode.value)[0], false, {
-                chordsOff: true
-            }).then(() => {
-                // Audio loaded
-            })
+            if (synthControl) {
+              synthControl.setTune(visualObj[0], false, {
+                  chordsOff: true
+              }).catch(error => {
+                console.warn("Audio setTune warning:", error)
+              })
+            }
+        }).catch(error => {
+           console.warn("Synth init warning:", error)
         })
     }
   } catch (err) {
     console.error(err)
-    // abcjs usually prints errors to console or returns warnings, 
-    // strictly speaking renderAbc might not throw but return specific objects.
-    // For simple error handling, we rely on visual output or check result.
+    syntaxError.value = err.message || 'Syntax Error'
   }
-}, 300)
+}, 500)
 
 watch(abcCode, () => {
   renderAbc()
@@ -122,9 +138,6 @@ const fetchScore = async () => {
     if (score.value.abc_source) {
       abcCode.value = score.value.abc_source
     } else {
-      // If backend has no specific abc field yet, or it's empty, use template
-      // We might want to inject Title/Key from score metadata into the template 
-      // if it's a fresh shell.
       let initCode = DEFAULT_TEMPLATE
       if (score.value.title) initCode = initCode.replace("T:New Song", `T:${score.value.title}`)
       if (score.value.song_key) initCode = initCode.replace("K:C", `K:${score.value.song_key}`)
@@ -158,13 +171,20 @@ const saveScore = async () => {
 onMounted(() => {
   fetchScore()
 })
+
+onUnmounted(() => {
+  if (synthControl) {
+    // Cleanup if needed, though abcjs doesn't strictly require it for simple usage
+    synthControl = null
+  }
+})
 </script>
 
 <style scoped>
 .editor-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: 100vh;
   background: #f5f5f5;
 }
 
@@ -176,6 +196,10 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .left, .right {
@@ -192,12 +216,11 @@ onMounted(() => {
 .main-content {
   flex: 1;
   display: flex;
-  overflow: hidden;
+  align-items: flex-start; /* Important for sticky sidebar */
 }
 
 .pane {
-  height: 100%;
-  overflow: auto;
+  padding: 20px;
 }
 
 .left-pane {
@@ -205,12 +228,19 @@ onMounted(() => {
   border-right: 1px solid #ddd;
   display: flex;
   flex-direction: column;
+  /* Sticky Sidebar */
+  position: sticky;
+  top: 60px;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
+  background: #282c34;
+  padding: 0;
 }
 
 .right-pane {
   flex: 1;
   background: #fff;
-  padding: 20px;
+  min-height: calc(100vh - 60px);
   display: flex;
   flex-direction: column;
 }
@@ -218,12 +248,13 @@ onMounted(() => {
 .code-editor {
   flex: 1;
   width: 100%;
+  min-height: 100%;
   resize: none;
   border: none;
   padding: 16px;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
   outline: none;
   background: #282c34;
   color: #abb2bf;
@@ -239,12 +270,35 @@ onMounted(() => {
 
 .paper-container {
   flex: 1;
-  overflow-y: auto;
+  margin-top: 20px;
 }
 
 .audio-container {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #eee;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+/* Custom Scrollbar for Webkit */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+.left-pane::-webkit-scrollbar-thumb {
+  background: #4b5263;
+}
+.left-pane::-webkit-scrollbar-track {
+  background: #282c34;
 }
 </style>

@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import naive from 'naive-ui'
+import 'abcjs/abcjs-audio.css'
 
 const app = createApp(App)
 
