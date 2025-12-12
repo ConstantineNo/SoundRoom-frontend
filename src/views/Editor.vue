@@ -10,7 +10,11 @@
       </div>
       <div class="right">
         <n-button type="primary" @click="saveScore" :loading="saving">保存并解析</n-button>
-        <n-button @click="handleGenerateJianpu" style="margin-left: 10px">生成简谱</n-button>
+        <n-button type="primary" @click="saveScore" :loading="saving">保存并解析</n-button>
+        <div class="view-switcher" style="margin-left: 10px; display: inline-flex; gap: 5px;">
+           <n-button size="small" :type="viewMode === 'staff' ? 'primary' : 'default'" @click="viewMode = 'staff'">五线谱</n-button>
+           <n-button size="small" :type="viewMode === 'jianpu' ? 'primary' : 'default'" @click="viewMode = 'jianpu'">简谱</n-button>
+        </div>
       </div>
     </div>
     
@@ -32,7 +36,13 @@
       <!-- Right: Preview -->
       <div class="pane right-pane">
         <div id="audio" class="audio-container"></div>
-        <div id="paper" class="paper-container"></div>
+        <div id="audio" class="audio-container"></div>
+        <div id="paper" class="paper-container" v-show="viewMode === 'staff'"></div>
+        <JianpuScore 
+          v-if="viewMode === 'jianpu' && visualObj" 
+          :tune="visualObj" 
+          :active-note-ids="activeNoteIds"
+        />
       </div>
     </div>
   </div>
@@ -44,8 +54,10 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import abcjs from 'abcjs'
 import 'abcjs/abcjs-audio.css'
-import { generateJianpu } from '../utils/jianpu'
+import abcjs from 'abcjs'
+import 'abcjs/abcjs-audio.css'
 import { useMessage, NButton, NIcon } from 'naive-ui'
+import JianpuScore from '../components/JianpuScore.vue'
 import { ArrowBack } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
 
@@ -59,6 +71,9 @@ const score = ref(null)
 const abcCode = ref('')
 const saving = ref(false)
 const syntaxError = ref('')
+const viewMode = ref('staff') // 'staff' | 'jianpu'
+const visualObj = ref(null)
+const activeNoteIds = ref([]) // IDs of notes currently playing
 
 let synthControl = null
 let createSynth = null
@@ -85,14 +100,35 @@ const renderAbc = debounce(async () => {
   
   try {
     // 1. 渲染乐谱
-    const visualObj = abcjs.renderAbc("paper", abcCode.value, {
+    const tune = abcjs.renderAbc("paper", abcCode.value, {
       responsive: "resize",
       add_classes: true,
-      staffwidth: 800 // 建议固定宽度以保证排版稳定
+      staffwidth: 800 
     })
+    
+    // Inject IDs into visual object for mapping
+    // We iterate the rendered object and tag elements
+    if (tune && tune[0]) {
+       let uid = 0;
+       tune[0].lines.forEach(line => {
+           if (line.staff) {
+               line.staff.forEach(staff => {
+                   staff.voices.forEach(voice => {
+                       voice.forEach(el => {
+                           // Modifying the abcjs object directly to ensure persistence
+                           el._myId = `note_${uid++}`
+                       })
+                   })
+               })
+           }
+       })
+       visualObj.value = tune[0]
+    } else {
+        visualObj.value = null
+    }
 
     // 2. 检查是否生成了有效的乐谱对象
-    if (!visualObj || !visualObj[0]) {
+    if (!tune || !tune[0]) {
       console.warn("渲染未能生成有效的 Tune 对象")
       return
     }
@@ -136,13 +172,40 @@ const renderAbc = debounce(async () => {
             
             // Highlight current elements
             if (ev && ev.elements) {
-              ev.elements.forEach(elGroup => {
-                if (Array.isArray(elGroup)) {
-                  elGroup.forEach(el => el.classList.add('highlight-note'))
-                } else if (elGroup instanceof Element) {
-                  elGroup.classList.add('highlight-note')
-                }
-              })
+               // ev.elements contains SVG elements.
+               // We need to map back to the 'el' object to get _myId
+               const newIds = [];
+               ev.elements.forEach(svgEl => {
+                   // abcjs attaches the original element to the SVG node as 'abcelem' usually?
+                   // Actually, in abcjs 6, the event passed to listener gives access.
+                   // Let's assume one of the elements has the property
+                   // Or look at `ev.elements` which are DOM nodes.
+                   // The DOM node usually has `__data__` if D3, or `abcelem` property?
+                   // No, abcjs doesn't strictly attach `abcelem` to DOM node in standard build unless instrumented.
+                   // BUT, since we modified `visualObj`, and `visualObj` generates the Sequence.
+                   // Timing callbacks in abcjs return `{ elements: [SVGElement], measure: number, ...}`.
+                   
+                   // Alternate strategy:
+                   // The `ev.elements` array corresponds to the "notes at this moment".
+                   // If we are in 'staff' mode, we use classList additions (standard).
+                   // If we are in 'jianpu' mode, we need to find the `_myId`.
+                   
+                   // HACK: Start simple. If we are in Staff mode, do standard highlight.
+                   if (viewMode.value === 'staff') {
+                       svgEl.classList.add('highlight-note');
+                   } else {
+                       // In Jianpu mode.
+                       // We can't easily track from SVG element back to abstract object strictly via public API.
+                       // However, we can use the `abcelem` property if it exists.
+                       const abstractEl = svgEl.abcelem;
+                       if (abstractEl && abstractEl._myId) {
+                           newIds.push(abstractEl._myId);
+                       }
+                   }
+               });
+               
+               // Update Vue state for Jianpu
+               activeNoteIds.value = newIds;
             }
           },
           onFinished() {
@@ -153,7 +216,7 @@ const renderAbc = debounce(async () => {
 
         // E. 将合成器连接到控制器
         // millisecondsPerMeasure: 用于控制初始速度，可选
-        await synthControl.setTune(visualObj[0], true, {
+        await synthControl.setTune(tune[0], true, {
           chordsOff: true, // 竹笛单旋律，建议关闭和弦伴奏
           cursorControl: cursorControl
         })
@@ -215,20 +278,8 @@ const saveScore = async () => {
   }
 }
 
-const handleGenerateJianpu = () => {
-  try {
-    const newCode = generateJianpu(abcCode.value)
-    if (newCode === abcCode.value) {
-      message.info('未能生成新的简谱行 (可能是已经存在或无音符)')
-    } else {
-      abcCode.value = newCode
-      message.success('简谱已插入')
-    }
-  } catch (e) {
-    console.error(e)
-    message.error('生成简谱失败: ' + e.message)
-  }
-}
+// function handleGenerateJianpu removed as we have switching now
+
 
 onMounted(() => {
   fetchScore()
