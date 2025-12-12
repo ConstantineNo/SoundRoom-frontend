@@ -72,6 +72,8 @@ const visualObj = ref(null)
 const activeNoteIds = ref([]) // IDs of notes currently playing
 
 let synthControl = null
+// 建立 SVG 元素到 _myId 的映射
+const elemToIdMap = new Map()
 
 // Default template if empty
 const DEFAULT_TEMPLATE = `X:1
@@ -104,34 +106,29 @@ const cursorControl = {
     
     if (!ev) return; // End of tune
     
-    // DEBUG: Log event
-    console.log('[onEvent]', ev);
-    
     // Highlight current elements
     if (ev.elements) {
       const newIds = [];
-      ev.elements.forEach(svgEl => {
-        // Check if svgEl is a valid DOM element
-        if (!svgEl || typeof svgEl.classList === 'undefined') {
-          console.log('[onEvent] Invalid element:', svgEl);
-          return;
-        }
+      ev.elements.forEach(elArray => {
+        // ev.elements is an array of arrays
+        if (!Array.isArray(elArray)) elArray = [elArray];
         
-        // Staff mode: add class directly to SVG element
-        if (viewMode.value === 'staff') {
-          svgEl.classList.add('highlight-note');
-          console.log('[onEvent] Highlighted staff element:', svgEl);
-        }
-        // Jianpu mode: get the element ID from abcelem
-        if (svgEl.abcelem && svgEl.abcelem._myId) {
-          newIds.push(svgEl.abcelem._myId);
-          console.log('[onEvent] Found Jianpu ID:', svgEl.abcelem._myId);
-        } else {
-          console.log('[onEvent] No abcelem._myId on:', svgEl, 'abcelem:', svgEl.abcelem);
-        }
+        elArray.forEach(domEl => {
+          if (!domEl || !domEl.classList) return;
+          
+          // Staff mode: add class directly to SVG element
+          if (viewMode.value === 'staff') {
+            domEl.classList.add('highlight-note');
+          }
+          
+          // Get the note ID from our mapping for Jianpu mode
+          const noteId = elemToIdMap.get(domEl);
+          if (noteId) {
+            newIds.push(noteId);
+          }
+        });
       });
       activeNoteIds.value = newIds;
-      console.log('[onEvent] activeNoteIds:', newIds);
     }
   },
   onFinished() {
@@ -145,6 +142,9 @@ const renderAbc = debounce(async () => {
   syntaxError.value = ''
   const audioContainer = document.querySelector("#audio")
   
+  // 清空映射
+  elemToIdMap.clear()
+  
   try {
     // 1. 渲染乐谱
     const tune = abcjs.renderAbc("paper", abcCode.value, {
@@ -153,7 +153,7 @@ const renderAbc = debounce(async () => {
       staffwidth: 800 
     })
     
-    // Inject IDs into visual object for mapping
+    // Inject IDs into visual object for mapping and build SVG element map
     if (tune && tune[0]) {
        let uid = 0;
        tune[0].lines.forEach(line => {
@@ -161,7 +161,18 @@ const renderAbc = debounce(async () => {
                line.staff.forEach(staff => {
                    staff.voices.forEach(voice => {
                        voice.forEach(el => {
-                           el._myId = `note_${uid++}`
+                           const myId = `note_${uid++}`
+                           el._myId = myId
+                           
+                           // 建立 SVG 元素到 _myId 的映射
+                           // abcjs 在每个元素上存储了 abselem，其中包含 SVG 元素引用
+                           if (el.abselem && el.abselem.elemset) {
+                             el.abselem.elemset.forEach(svgEl => {
+                               if (svgEl) {
+                                 elemToIdMap.set(svgEl, myId)
+                               }
+                             })
+                           }
                        })
                    })
                })
