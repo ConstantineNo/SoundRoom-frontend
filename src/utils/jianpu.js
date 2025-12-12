@@ -132,13 +132,14 @@ function formatJianpu(semitoneInterval) {
     // Convention: 1' (high), 1, (low). 
 
     let suffix = "";
-    while (octave > 0) {
-        suffix += "'"; // or use unicode dot?
-        octave--;
-    }
-    while (octave < 0) {
-        suffix += ",";
-        octave++;
+    if (octave > 0) {
+        // Unicode U+0307 (Dot Above)
+        if (octave === 1) suffix = "\u0307";
+        else if (octave >= 2) suffix = "\u0307\u0307";
+    } else if (octave < 0) {
+        // Unicode U+0323 (Dot Below)
+        if (octave === -1) suffix = "\u0323";
+        else if (octave <= -2) suffix = "\u0323\u0323";
     }
 
     return baseNum + suffix;

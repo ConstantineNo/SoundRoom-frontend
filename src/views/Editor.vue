@@ -376,8 +376,15 @@ onUnmounted(() => {
 
 /* Note Highlighting */
 :deep(.highlight-note) {
-  fill: #ff4d4f !important;
-  stroke: #ff4d4f !important;
-  stroke-width: 2px;
+  fill: #d03050 !important; /* using a reddish color */
+  stroke: #d03050 !important;
+}
+:deep(.highlight-note path) {
+  fill: #d03050 !important;
+  stroke: #d03050 !important;
+}
+:deep(g.highlight-note path) {
+  fill: #d03050 !important;
+  stroke: #d03050 !important;
 }
 </style>
