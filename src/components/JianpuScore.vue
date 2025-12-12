@@ -40,10 +40,12 @@
           </g>
           
           <!-- Notes in this measure -->
-          <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.x}, 0)`">
+          <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
+             :transform="`translate(${note.x}, 0)` + (note.isGrace ? ' scale(0.7)' : '')"
+             :class="{ 'grace-note-group': note.isGrace }">
             <!-- Highlight rect (check both id and originalId for split rests) -->
             <rect 
-              v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId))"
+              v-if="!note.isGrace && (activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)))"
               class="highlight-bg"
               :x="-5" :y="20" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="60"
             />
@@ -60,7 +62,7 @@
             </template>
             
             <!-- Main number -->
-            <text class="note-number" :class="{ 'is-rest': note.isRest }" x="10" y="58">{{ note.number }}</text>
+            <text class="note-number" :class="{ 'is-rest': note.isRest, 'is-grace': note.isGrace }" x="10" y="58">{{ note.number }}</text>
             
             <!-- Low octave dots -->
             <template v-if="note.lowDots > 0">
@@ -78,11 +80,11 @@
               />
             </template>
             
-            <!-- Augmentation dot (only for non-rest notes) -->
-            <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="55" r="2"/>
+            <!-- Augmentation dot (only for non-rest, non-grace notes) -->
+            <circle v-if="note.augDot && !note.isRest && !note.isGrace" class="aug-dot" :cx="28" :cy="55" r="2"/>
             
             <!-- Dashes for long notes (only for non-rest notes) -->
-            <template v-if="note.dashes > 0 && !note.isRest">
+            <template v-if="note.dashes > 0 && !note.isRest && !note.isGrace">
               <line v-for="d in note.dashes" :key="'d'+d"
                 class="dash"
                 :x1="30 + (d-1)*20" :y1="50" :x2="45 + (d-1)*20" :y2="50"
@@ -90,11 +92,19 @@
             </template>
           </g>
           
-          <!-- Tie/Slur lines -->
+          <!-- Tie lines (same pitch) -->
           <template v-for="(tie, tIdx) in measure.ties" :key="'tie'+tIdx">
             <path 
               class="tie-line"
               :d="getTiePath(tie)"
+            />
+          </template>
+          
+          <!-- Slur lines (different pitches) -->
+          <template v-for="(slur, sIdx) in measure.slurs" :key="'slur'+sIdx">
+            <path 
+              class="slur-line"
+              :d="getSlurPath(slur)"
             />
           </template>
           
@@ -111,6 +121,14 @@
               <text :x="(triplet.startX + triplet.endX) / 2" y="14" class="triplet-number">3</text>
             </g>
           </template>
+          
+          <!-- Left bar line at start of measure (for left repeat) -->
+          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(2, 0)">
+            <rect class="bar-thick" x="-2" y="25" width="4" height="50"/>
+            <line class="bar-line" x1="4" y1="25" x2="4" y2="75"/>
+            <circle class="repeat-dot" cx="10" cy="42" r="2.5"/>
+            <circle class="repeat-dot" cx="10" cy="58" r="2.5"/>
+          </g>
           
           <!-- Bar line at end of measure - different types -->
           <g class="bar-lines" :transform="`translate(${measureWidth - 2}, 0)`">
@@ -356,7 +374,12 @@ const layoutMeasureNotes = (measure) => {
   // First pass: calculate total minimum width needed
   let totalMinWidth = 0
   measure.notes.forEach(note => {
-    note.displayWidth = getNoteDisplayWidth(note)
+    // Grace notes are smaller
+    if (note.isGrace) {
+      note.displayWidth = NOTE_WIDTH * 0.6
+    } else {
+      note.displayWidth = getNoteDisplayWidth(note)
+    }
     totalMinWidth += note.displayWidth
   })
   
@@ -379,6 +402,18 @@ const layoutMeasureNotes = (measure) => {
       tie.endX = endNote.x + NOTE_WIDTH / 2
     }
   })
+  
+  // Update slur start/end x positions
+  if (measure.slurs) {
+    measure.slurs.forEach(slur => {
+      const startNote = measure.notes[slur.startIdx]
+      const endNote = measure.notes[slur.endIdx]
+      if (startNote && endNote) {
+        slur.startX = startNote.x + NOTE_WIDTH / 2
+        slur.endX = endNote.x + NOTE_WIDTH / 2
+      }
+    })
+  }
   
   // Find triplet groups
   measure.tripletGroups = []
@@ -420,14 +455,28 @@ const meterDisplay = computed(() => {
   return null
 })
 
-// Calculate tie path
+// Calculate tie path (arc above notes, for same pitch)
 const getTiePath = (tie) => {
-  const x1 = tie.startX + 15
-  const x2 = tie.endX + 5
-  const y = 35 // Above the notes
+  if (!tie.startX || !tie.endX) return ''
+  const x1 = tie.startX
+  const x2 = tie.endX
+  const y = 30 // Above the notes
   const midX = (x1 + x2) / 2
-  const height = 10
+  const distance = Math.abs(x2 - x1)
+  const height = Math.min(15, distance * 0.3) // Arc height scales with distance
   return `M ${x1} ${y} Q ${midX} ${y - height} ${x2} ${y}`
+}
+
+// Calculate slur path (curved line below notes, for different pitches)
+const getSlurPath = (slur) => {
+  if (!slur.startX || !slur.endX) return ''
+  const x1 = slur.startX
+  const x2 = slur.endX
+  const y = 85 // Below the notes
+  const midX = (x1 + x2) / 2
+  const distance = Math.abs(x2 - x1)
+  const height = Math.min(12, distance * 0.25)
+  return `M ${x1} ${y} Q ${midX} ${y + height} ${x2} ${y}`
 }
 
 // Main computation
@@ -441,18 +490,29 @@ const computedRows = computed(() => {
   
   let keyRoot = 0
   const allMeasures = []
-  let currentMeasure = { notes: [], ties: [], totalDuration: 0, barType: 'bar_thin' }
+  let currentMeasure = { notes: [], ties: [], slurs: [], totalDuration: 0, barType: 'bar_thin', startBarType: null }
   let noteCount = 0
   let measureIndex = 0
   const meter = getMeterInfo()
   // Calculate expected duration for a measure (in abcjs units: 1 = whole note)
   const expectedMeasureDuration = meter.num / meter.den
   
-  // Track for tie detection - need to track across measures too
-  let prevNoteForTie = null
+  // Track for tie detection - global tracking across all measures
+  // key: pitch, value: { measureIdx, noteIdx, note }
+  let pendingTie = null
+  
+  // Track for slur detection - global tracking
+  let slurStartInfo = null // { measureIdx, noteIdx }
+  let inSlur = false
+  
+  // Track pending left repeat for next measure
+  let pendingStartBarType = null
   
   // Accumulated beat position for grouping
   let beatPosition = 0
+  
+  // Store all notes globally for cross-measure tie/slur resolution
+  const globalNotes = []
   
   props.tune.lines.forEach(line => {
     if (!line.staff) return
@@ -463,6 +523,9 @@ const computedRows = computed(() => {
           const elId = el._myId || null
           
           if (el.el_type === 'bar') {
+            // Debug bar type
+            console.log('Bar type:', el.type)
+            
             // Only push measure if it has notes (avoid empty first measure)
             if (currentMeasure.notes.length > 0) {
               measureIndex++
@@ -482,21 +545,74 @@ const computedRows = computed(() => {
               currentMeasure.expectedDuration = expectedMeasureDuration
               
               // Determine bar type from el.type
-              currentMeasure.barType = el.type || 'bar_thin'
+              const barType = el.type || 'bar_thin'
+              
+              // Handle bar types - right repeat goes to current measure end
+              // left repeat goes to next measure start
+              // Support different abcjs bar type names
+              if (barType === 'bar_left_repeat' || barType === 'bar_thick_thin') {
+                // Left repeat |: put at start of NEXT measure
+                currentMeasure.barType = 'bar_thin'
+                pendingStartBarType = 'bar_left_repeat'
+              } else if (barType === 'bar_dbl_repeat') {
+                // Double repeat :|: right repeat at current end, left repeat at next start
+                currentMeasure.barType = 'bar_right_repeat'
+                pendingStartBarType = 'bar_left_repeat'
+              } else if (barType === 'bar_right_repeat') {
+                // Right repeat :| at end of current measure
+                currentMeasure.barType = 'bar_right_repeat'
+              } else {
+                currentMeasure.barType = barType
+              }
               
               // Recalculate note positions based on actual content
               layoutMeasureNotes(currentMeasure)
               
               allMeasures.push(currentMeasure)
+            } else if (el.type === 'bar_left_repeat' || el.type === 'bar_thick_thin') {
+              // First bar is a left repeat - save for first measure
+              pendingStartBarType = 'bar_left_repeat'
             }
-            // Start new measure - reset prevNoteForTie to null
-            // Cross-measure ties are complex and would need separate handling
-            currentMeasure = { notes: [], ties: [], totalDuration: 0, barType: 'bar_thin' }
+            
+            // Start new measure
+            currentMeasure = { 
+              notes: [], 
+              ties: [], 
+              slurs: [],
+              totalDuration: 0, 
+              barType: 'bar_thin',
+              startBarType: pendingStartBarType
+            }
+            pendingStartBarType = null
             beatPosition = 0
-            prevNoteForTie = null
+            // Don't reset prevNoteForTie - ties can cross barlines
           } else if (el.el_type === 'note') {
             noteCount++
             const duration = el.duration || 0.25
+            
+            // Check for grace notes first
+            if (el.gracenotes && el.gracenotes.length > 0) {
+              // Process grace notes - they appear before the main note
+              el.gracenotes.forEach((grace, graceIdx) => {
+                const graceData = pitchToJianpu(grace.pitch, keyRoot)
+                const graceNote = {
+                  id: `${elId}_grace_${graceIdx}`,
+                  x: 0,
+                  number: graceData.number,
+                  isRest: false,
+                  isGrace: true,
+                  highDots: graceData.octave > 0 ? graceData.octave : 0,
+                  lowDots: graceData.octave < 0 ? Math.abs(graceData.octave) : 0,
+                  accidental: grace.accidental ? (ACCIDENTAL_SYMBOLS[grace.accidental] || null) : null,
+                  dashes: 0,
+                  underlines: 2, // Grace notes are typically 16th notes
+                  augDot: false,
+                  duration: 0, // Grace notes don't take time
+                  pitch: grace.pitch
+                }
+                currentMeasure.notes.push(graceNote)
+              })
+            }
             
             if (el.rest) {
               // Split long rests into multiple quarter note rests
@@ -520,11 +636,16 @@ const computedRows = computed(() => {
               const hasStartTie = !!(p.startTie || el.startTie)
               const hasEndTie = !!(p.endTie || el.endTie)
               
+              // Check slur flags
+              const hasStartSlur = !!(p.startSlur || el.startSlur)
+              const hasEndSlur = !!(p.endSlur || el.endSlur)
+              
               const noteObj = {
                 id: elId,
                 x: 0, // Will be calculated later
                 number: jData.number,
                 isRest: false,
+                isGrace: false,
                 highDots: jData.octave > 0 ? jData.octave : 0,
                 lowDots: jData.octave < 0 ? Math.abs(jData.octave) : 0,
                 accidental: p.accidental ? (ACCIDENTAL_SYMBOLS[p.accidental] || null) : null,
@@ -533,6 +654,8 @@ const computedRows = computed(() => {
                 pitch: p.pitch,
                 hasTieStart: hasStartTie,
                 hasTieEnd: hasEndTie,
+                hasSlurStart: hasStartSlur,
+                hasSlurEnd: hasEndSlur,
                 beatGroup: Math.floor(beatPosition / 0.25),
                 isTriplet: isTriplet,
                 startTriplet: el.startTriplet,
@@ -541,24 +664,60 @@ const computedRows = computed(() => {
               
               // Record current note index before adding
               const noteIndex = currentMeasure.notes.length
+              const currentMeasureIdx = allMeasures.length // Index of current measure (before it's pushed)
               
               currentMeasure.notes.push(noteObj)
               currentMeasure.totalDuration += duration
               beatPosition += duration
               
-              // Check for tie - if previous note has startTie and this note has same pitch
-              if (prevNoteForTie && prevNoteForTie.hasTieStart && 
-                  prevNoteForTie.pitch === noteObj.pitch) {
-                currentMeasure.ties.push({
-                  startIdx: prevNoteForTie.index,
-                  endIdx: noteIndex
-                })
+              // Track global note position
+              globalNotes.push({
+                measureIdx: currentMeasureIdx,
+                noteIdx: noteIndex,
+                note: noteObj
+              })
+              
+              // Check for tie end - if we have a pending tie start with same pitch
+              if (pendingTie && pendingTie.pitch === noteObj.pitch) {
+                // Same measure tie
+                if (pendingTie.measureIdx === currentMeasureIdx) {
+                  currentMeasure.ties.push({
+                    startIdx: pendingTie.noteIdx,
+                    endIdx: noteIndex
+                  })
+                }
+                // Cross-measure tie - we'll need to handle this differently
+                // For now, just clear the pending tie
+                pendingTie = null
               }
               
-              // Store current note info for next iteration
-              prevNoteForTie = {
-                ...noteObj,
-                index: noteIndex
+              // If this note starts a tie, record it
+              if (hasStartTie) {
+                pendingTie = {
+                  measureIdx: currentMeasureIdx,
+                  noteIdx: noteIndex,
+                  pitch: noteObj.pitch
+                }
+              }
+              
+              // Check for slur start
+              if (hasStartSlur) {
+                inSlur = true
+                slurStartInfo = { measureIdx: currentMeasureIdx, noteIdx: noteIndex }
+              }
+              
+              // Check for slur end
+              if (hasEndSlur && inSlur && slurStartInfo) {
+                // Same measure slur
+                if (slurStartInfo.measureIdx === currentMeasureIdx) {
+                  currentMeasure.slurs.push({
+                    startIdx: slurStartInfo.noteIdx,
+                    endIdx: noteIndex
+                  })
+                }
+                // Cross-measure slur would need special handling
+                inSlur = false
+                slurStartInfo = null
               }
             }
           }
@@ -729,11 +888,36 @@ const svgHeight = computed(() => {
   rx: 4;
 }
 
-/* Tie/Slur line */
+/* Tie line (same pitch - above notes) */
 .tie-line {
   fill: none;
   stroke: #222;
   stroke-width: 1.5;
+}
+
+/* Slur line (different pitches - below notes) */
+.slur-line {
+  fill: none;
+  stroke: #666;
+  stroke-width: 1.5;
+  stroke-dasharray: none;
+}
+
+/* Grace notes */
+.grace-note-group .note-number {
+  font-size: 16px;
+}
+
+.grace-note-group .octave-dot {
+  r: 1.5;
+}
+
+.grace-note-group .underline {
+  stroke-width: 1;
+}
+
+.note-number.is-grace {
+  fill: #555;
 }
 
 /* Triplet bracket */
