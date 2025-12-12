@@ -33,49 +33,96 @@
           
           <!-- Notes -->
           <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
-             :transform="`translate(${note.x}, 0)` + (note.isGrace ? ' scale(0.65)' : '')"
-             :class="{ 'grace-note-group': note.isGrace, 'clickable-note': !note.isRest }"
+             :transform="`translate(${note.x}, 0)`"
+             :class="{ 'clickable-note': !note.isRest && !note.isGrace }"
              @click="onNoteClick(note)">
              
-            <!-- Highlight -->
-            <rect v-if="!note.isGrace && (activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)))"
-              class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55" />
-            
-            <!-- Accidental -->
-            <text v-if="note.accidental" class="accidental" :x="-2" y="48">{{ note.accidental }}</text>
-            
-            <!-- High octave dots -->
-            <template v-if="note.highDots > 0">
-              <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="24 - (d-1)*7" r="2.5" />
-            </template>
-            
-            <!-- Main number -->
-            <text class="note-number" :class="{ 'is-rest': note.isRest, 'is-grace': note.isGrace }" x="15" y="50">{{ note.number }}</text>
-            
-            <!-- Grace Note Slash (倚音撇) -->
-            <line v-if="note.isGrace && note.isLastGrace" class="grace-slash" x1="15" y1="55" x2="35" y2="40" />
+            <!-- 普通音符 -->
+            <template v-if="!note.isGrace">
+              <!-- Highlight -->
+              <rect v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId))"
+                class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55" />
+              
+              <!-- Accidental -->
+              <text v-if="note.accidental" class="accidental" :x="-2" y="48">{{ note.accidental }}</text>
+              
+              <!-- High octave dots -->
+              <template v-if="note.highDots > 0">
+                <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="24 - (d-1)*7" r="2.5" />
+              </template>
+              
+              <!-- Main number -->
+              <text class="note-number" :class="{ 'is-rest': note.isRest }" x="15" y="50">{{ note.number }}</text>
 
-            <!-- Low octave dots -->
-            <template v-if="note.lowDots > 0">
-              <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*7 + (note.hasBeam ? 12 : note.underlines * 5)" r="2.5" />
-            </template>
-            
-            <!-- Underlines (only if NOT beamed) -->
-            <template v-if="!note.hasBeam && note.underlines > 0">
-              <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="58 + (u-1)*5" :x2="27" :y2="58 + (u-1)*5" />
-            </template>
-            
-            <!-- Augmentation dot -->
-            <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="45" r="2.5"/>
-            
-            <!-- Dashes (延音线) - 与数字底部对齐，短横线紧跟数字 -->
-            <template v-if="note.dashes > 0 && !note.isRest && !note.isGrace">
-              <line v-for="d in note.dashes" :key="'d'+d" class="dash"
-                :x1="NOTE_WIDTH - 2 + (d-1)*DASH_WIDTH" :y1="48" :x2="NOTE_WIDTH - 2 + d*DASH_WIDTH - 8" :y2="48" />
-            </template>
+              <!-- Low octave dots -->
+              <template v-if="note.lowDots > 0">
+                <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*7 + (note.hasBeam ? 12 : note.underlines * 5)" r="2.5" />
+              </template>
+              
+              <!-- Underlines (only if NOT beamed) -->
+              <template v-if="!note.hasBeam && note.underlines > 0">
+                <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="58 + (u-1)*5" :x2="27" :y2="58 + (u-1)*5" />
+              </template>
+              
+              <!-- Augmentation dot -->
+              <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="42" r="2.5"/>
+              
+              <!-- Dashes (延音线) -->
+              <template v-if="note.dashes > 0 && !note.isRest">
+                <line v-for="d in note.dashes" :key="'d'+d" class="dash"
+                  :x1="3 + (d-1)*DASH_WIDTH" :y1="42" :x2="27 + (d-1)*DASH_WIDTH" :y2="42" />
+              </template>
 
-            <!-- Lyric -->
-            <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
+              <!-- Lyric -->
+              <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
+              
+              <!-- Grace notes group (倚音组，显示在主音符右上角) -->
+              <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container">
+                <!-- 倚音弧线 -->
+                <path v-if="note.graceNotes.length > 1" class="grace-slur" 
+                  :d="getGraceSlurPath(note.graceNotes)" />
+                <!-- 三连音标记 -->
+                <text v-if="note.graceNotes.length === 3" class="grace-triplet-mark"
+                  :x="note.displayWidth + 10 + (note.graceNotes.length * 12) / 2" y="5">3</text>
+                <!-- 每个倚音 -->
+                <g v-for="(grace, gIdx) in note.graceNotes" :key="'g'+gIdx"
+                   :transform="`translate(${note.displayWidth + 5 + gIdx * 18}, -15) scale(0.55)`">
+                  <!-- 高八度点 -->
+                  <template v-if="grace.highDots > 0">
+                    <circle v-for="d in grace.highDots" :key="'gh'+d" class="octave-dot" :cx="10" :cy="20 - (d-1)*6" r="2" />
+                  </template>
+                  <!-- 音符数字 -->
+                  <text class="note-number grace-number" x="10" y="42">{{ grace.number }}</text>
+                  <!-- 低八度点 -->
+                  <template v-if="grace.lowDots > 0">
+                    <circle v-for="d in grace.lowDots" :key="'gl'+d" class="octave-dot" :cx="10" :cy="50 + (d-1)*6" r="2" />
+                  </template>
+                  <!-- 下划线 -->
+                  <template v-if="grace.underlines > 0">
+                    <line v-for="u in grace.underlines" :key="'gu'+u" class="underline" 
+                      :x1="0" :y1="50 + (u-1)*4" :x2="20" :y2="50 + (u-1)*4" />
+                  </template>
+                </g>
+              </g>
+            </template>
+            
+            <!-- 旧版倚音渲染（已废弃，但保留以防万一） -->
+            <template v-else>
+              <!-- 倚音以缩放方式渲染 -->
+              <g transform="scale(0.6)">
+                <template v-if="note.highDots > 0">
+                  <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="12" :cy="22 - (d-1)*5" r="2" />
+                </template>
+                <text class="note-number is-grace" x="12" y="40">{{ note.number }}</text>
+                <template v-if="note.lowDots > 0">
+                  <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="12" :cy="48 + (d-1)*5" r="2" />
+                </template>
+                <template v-if="note.underlines > 0">
+                  <line v-for="u in note.underlines" :key="'u'+u" class="underline" 
+                    :x1="2" :y1="48 + (u-1)*4" :x2="22" :y2="48 + (u-1)*4" />
+                </template>
+              </g>
+            </template>
           </g>
           
           <!-- Tie lines (Filled Shapes) -->
@@ -104,18 +151,6 @@
           
           <!-- 小节结束的竖线 -->
           <g class="bar-lines" :transform="`translate(${measureWidth + 5}, 0)`">
-            <!-- 普通细线 -->
-            <line v-if="measure.barType === 'bar_thin'" class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
-            <!-- 双细线 -->
-            <template v-if="measure.barType === 'bar_dbl_thin'">
-              <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
-              <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
-            </template>
-            <!-- 终止线 (细线+粗线) -->
-            <template v-if="measure.barType === 'bar_thin_thick'">
-              <line class="bar-line" x1="-8" y1="20" x2="-8" y2="65"/>
-              <rect class="bar-thick" x="-4" y="20" width="4" height="45"/>
-            </template>
             <!-- 右重复符号 (:|) - 两点+细线+粗线 -->
             <template v-if="measure.barType === 'bar_right_repeat'">
               <circle class="repeat-dot" cx="-18" cy="35" r="2.5"/>
@@ -123,7 +158,18 @@
               <line class="bar-line" x1="-10" y1="20" x2="-10" y2="65"/>
               <rect class="bar-thick" x="-6" y="20" width="4" height="45"/>
             </template>
-            <!-- Double repeat omitted for brevity, handled by left/right combos usually -->
+            <!-- 终止线 (细线+粗线) -->
+            <template v-else-if="measure.barType === 'bar_thin_thick'">
+              <line class="bar-line" x1="-8" y1="20" x2="-8" y2="65"/>
+              <rect class="bar-thick" x="-4" y="20" width="4" height="45"/>
+            </template>
+            <!-- 双细线 -->
+            <template v-else-if="measure.barType === 'bar_dbl_thin'">
+              <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
+              <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
+            </template>
+            <!-- 普通细线 (默认) -->
+            <line v-else class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
           </g>
         </g>
       </g>
@@ -158,8 +204,17 @@ const activeIds = computed(() => new Set(props.activeNoteIds))
 // 点击音符跳转
 const onNoteClick = (note) => {
   if (note.isRest) return
-  // 使用 absoluteTime (绝对时间) 而非 timePercent
-  // 发射原始音符 ID 和时间百分比
+  
+  // 调试信息
+  console.log('[JianpuScore] 点击音符:', {
+    noteId: note.id || note.originalId,
+    number: note.number,
+    timePercent: note.timePercent,
+    absoluteTime: note.absoluteTime,
+    duration: note.duration,
+    tuneDuration: tuneDuration.value
+  })
+  
   emit('seek-to-note', {
     noteId: note.id || note.originalId,
     timePercent: note.timePercent,
@@ -474,6 +529,21 @@ const getTiePath = (tie) => {
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
 
+// Calculate grace notes slur path (倚音弧线)
+const getGraceSlurPath = (graceNotes) => {
+  if (!graceNotes || graceNotes.length < 2) return ''
+  // 倚音组的弧线，跨越所有倚音
+  const startX = 10 // 第一个倚音的中心
+  const endX = 10 + (graceNotes.length - 1) * 18 // 最后一个倚音的中心
+  const y = 15 // 倚音上方
+  const midX = (startX + endX) / 2
+  const distance = Math.abs(endX - startX)
+  const h = Math.min(10, Math.max(5, distance * 0.3))
+  const thickness = 1.5
+  
+  return `M ${startX} ${y} Q ${midX} ${y - h} ${endX} ${y} Q ${midX} ${y - h + thickness} ${startX} ${y} Z`
+}
+
 // Calculate slur path (also above)
 const getSlurPath = (slur) => {
   if (!slur.startX || !slur.endX) return ''
@@ -719,31 +789,25 @@ const computedRows = computed(() => {
             // abcjs 歌词可能在 syllable 或 content 字段
             const lyric = el.lyric ? el.lyric.map(l => l.syllable || l.content || '').join('') : null
             
-            // Grace notes
+            // Grace notes - 收集倚音信息，稍后附加到主音符上
+            let graceNotesData = []
             if (el.gracenotes && el.gracenotes.length > 0) {
-              el.gracenotes.forEach((grace, graceIdx) => {
+              graceNotesData = el.gracenotes.map((grace, graceIdx) => {
                 const graceData = pitchToJianpu(grace.pitch, keyRoot)
-                // 修复倚音：添加 isTriplet 标记如果需要（虽然 grace notes 很少是 triplet）
-                // 更重要的是，倚音是一个 group，我们需要某种方式画那个“撇”
-                // 以及如果是三连倚音，加上“3”
-                currentMeasure.notes.push({
-                  id: `${elId}_grace_${graceIdx}`,
-                  x: 0,
+                // 根据倚音的时值计算下划线数量
+                const graceDuration = grace.duration || 0.0625
+                let graceUnderlines = 2 // 默认16分音符
+                if (graceDuration >= 0.125) graceUnderlines = 1 // 8分音符
+                if (graceDuration < 0.0625) graceUnderlines = 3 // 32分音符
+                
+                return {
                   number: graceData.number,
-                  isRest: false,
-                  isGrace: true,
                   highDots: graceData.octave > 0 ? graceData.octave : 0,
                   lowDots: graceData.octave < 0 ? Math.abs(graceData.octave) : 0,
                   accidental: grace.accidental ? (ACCIDENTAL_SYMBOLS[grace.accidental] || null) : null,
-                  dashes: 0,
-                  underlines: 1, // 倚音固定一条线
-                  augDot: false,
-                  duration: 0,
-                  pitch: grace.pitch,
-                  isLastGrace: graceIdx === el.gracenotes.length - 1, // 标记是否最后一个倚音，用于画撇
-                  parentNoteId: elId, // 关联主音符
-                  lyric: null
-                })
+                  underlines: graceUnderlines,
+                  pitch: grace.pitch
+                }
               })
             }
             
@@ -791,7 +855,8 @@ const computedRows = computed(() => {
                  lyric: lyric,
                  relativeStartTime: beatPosition,
                  timePercent: currentAccumulatedDuration / tuneDuration.value,
-                 absoluteTime: currentAccumulatedDuration
+                 absoluteTime: currentAccumulatedDuration,
+                 graceNotes: graceNotesData.length > 0 ? graceNotesData : null // 倚音数据
                }
                
                // Tie/Slur logic (same as before)
@@ -1034,12 +1099,35 @@ const svgHeight = computed(() => {
   stroke-width: 1.5;
 }
 
+/* Grace notes container */
+.grace-notes-container {
+  pointer-events: none; /* 倚音不响应点击 */
+}
+
+.grace-number {
+  font-size: 22px;
+  fill: #000;
+}
+
+.grace-slur {
+  fill: #000;
+  stroke: none;
+}
+
+.grace-triplet-mark {
+  font-size: 12px;
+  font-style: italic;
+  font-weight: bold;
+  fill: #000;
+  text-anchor: middle;
+}
+
 /* Lyrics */
 .lyric-text {
-  font-size: 14px;
-  fill: #333;
+  font-size: 20px;
+  fill: #000;
   text-anchor: middle;
-  font-family: sans-serif;
+  font-family: 'SimSun', 'Songti SC', 'STSong', serif;
 }
 
 /* Interactive Interaction */

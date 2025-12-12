@@ -170,15 +170,20 @@ const handleMeasureIssues = (issues) => {
 
 // 处理点击音符跳转
 const handleSeekToNote = (data) => {
-  if (!synthControl) return
+  console.log('[Editor] handleSeekToNote 接收到:', data)
+  
+  if (!synthControl) {
+    console.warn('[Editor] synthControl 未初始化')
+    return
+  }
+  
   // data 包含 { noteId, timePercent, absoluteTime }
   // synthControl.seek 使用的是百分比 (0-1)
-  // 由于 JianpuScore 计算的百分比是基于 duration 而非实际播放时间
-  // 这里直接使用传入的百分比，因为两者应该是成正比的
   if (data.timePercent !== undefined && data.timePercent >= 0 && data.timePercent <= 1) {
-    // 微调：稍微回退一点以确保从音符开始处播放
-    const adjustedPercent = Math.max(0, data.timePercent - 0.001)
-    synthControl.seek(adjustedPercent)
+    console.log('[Editor] 执行 seek, timePercent:', data.timePercent)
+    synthControl.seek(data.timePercent)
+  } else {
+    console.warn('[Editor] timePercent 无效:', data.timePercent)
   }
 }
 
