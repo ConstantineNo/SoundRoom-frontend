@@ -10,6 +10,7 @@
       </div>
       <div class="right">
         <n-button type="primary" @click="saveScore" :loading="saving">保存并解析</n-button>
+        <n-button @click="handleGenerateJianpu" style="margin-left: 10px">生成简谱</n-button>
       </div>
     </div>
     
@@ -43,6 +44,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import abcjs from 'abcjs'
 import 'abcjs/abcjs-audio.css'
+import { generateJianpu } from '../utils/jianpu'
 import { useMessage, NButton, NIcon } from 'naive-ui'
 import { ArrowBack } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
@@ -120,10 +122,40 @@ const renderAbc = debounce(async () => {
         // D. 初始化合成器 (生成 MIDI Buffer)
         await createSynth.init({ visualObj: visualObj[0] })
         
+        // Cursor Control Logic
+        const cursorControl = {
+          onStart() {
+            // Clear any existing highlights
+            const els = document.querySelectorAll('.highlight-note')
+            els.forEach(el => el.classList.remove('highlight-note'))
+          },
+          onEvent(ev) {
+            // Remove highlight from previous notes
+            const els = document.querySelectorAll('.highlight-note')
+            els.forEach(el => el.classList.remove('highlight-note'))
+            
+            // Highlight current elements
+            if (ev && ev.elements) {
+              ev.elements.forEach(elGroup => {
+                if (Array.isArray(elGroup)) {
+                  elGroup.forEach(el => el.classList.add('highlight-note'))
+                } else if (elGroup instanceof Element) {
+                  elGroup.classList.add('highlight-note')
+                }
+              })
+            }
+          },
+          onFinished() {
+            const els = document.querySelectorAll('.highlight-note')
+            els.forEach(el => el.classList.remove('highlight-note'))
+          }
+        }
+
         // E. 将合成器连接到控制器
         // millisecondsPerMeasure: 用于控制初始速度，可选
         await synthControl.setTune(visualObj[0], true, {
-          chordsOff: true // 竹笛单旋律，建议关闭和弦伴奏
+          chordsOff: true, // 竹笛单旋律，建议关闭和弦伴奏
+          cursorControl: cursorControl
         })
         
         console.log("音频初始化完成")
@@ -180,6 +212,21 @@ const saveScore = async () => {
     console.error(error)
   } finally {
     saving.value = false
+  }
+}
+
+const handleGenerateJianpu = () => {
+  try {
+    const newCode = generateJianpu(abcCode.value)
+    if (newCode === abcCode.value) {
+      message.info('未能生成新的简谱行 (可能是已经存在或无音符)')
+    } else {
+      abcCode.value = newCode
+      message.success('简谱已插入')
+    }
+  } catch (e) {
+    console.error(e)
+    message.error('生成简谱失败: ' + e.message)
   }
 }
 
@@ -325,5 +372,12 @@ onUnmounted(() => {
 }
 .left-pane::-webkit-scrollbar-track {
   background: #282c34;
+}
+
+/* Note Highlighting */
+:deep(.highlight-note) {
+  fill: #ff4d4f !important;
+  stroke: #ff4d4f !important;
+  stroke-width: 2px;
 }
 </style>
