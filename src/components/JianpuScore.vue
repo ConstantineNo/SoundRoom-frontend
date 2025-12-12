@@ -15,12 +15,29 @@
       <g v-for="(row, rowIdx) in computedRows" :key="rowIdx" :transform="`translate(0, ${rowIdx * rowHeight})`">
         <!-- Measures in this row -->
         <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
-          <!-- Warning background for overflowing measures -->
+          <!-- Warning background for duration issues -->
           <rect 
-            v-if="measure.overflow"
-            class="overflow-warning-bg"
+            v-if="measure.durationStatus === 'overflow'"
+            class="duration-warning-bg overflow"
             :x="0" :y="15" :width="measureWidth" :height="70"
           />
+          <rect 
+            v-if="measure.durationStatus === 'underflow'"
+            class="duration-warning-bg underflow"
+            :x="0" :y="15" :width="measureWidth" :height="70"
+          />
+          
+          <!-- Duration status indicator -->
+          <g v-if="measure.durationStatus !== 'ok'" class="duration-indicator">
+            <text 
+              :x="measureWidth - 5" 
+              y="18" 
+              class="duration-label"
+              :class="measure.durationStatus"
+            >
+              {{ measure.durationStatus === 'overflow' ? '⚠超' : '⚠缺' }}
+            </text>
+          </g>
           
           <!-- Notes in this measure -->
           <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.x}, 0)`">
@@ -93,7 +110,9 @@
       <div>Active Note IDs: {{ activeNoteIds.join(', ') || 'None' }}</div>
       <div>Total Notes Parsed: {{ totalNotes }}</div>
       <div>Measures: {{ totalMeasures }}</div>
-      <div>Overflow Measures: {{ overflowMeasures }}</div>
+      <div>Expected Duration per Measure: {{ meterDisplay }} = {{ (getMeterInfo().num / getMeterInfo().den).toFixed(2) }}</div>
+      <div :class="{ 'warning-text': overflowMeasures > 0 }">Overflow Measures (超限): {{ overflowMeasures }}</div>
+      <div :class="{ 'warning-text': underflowMeasures > 0 }">Underflow Measures (不足): {{ underflowMeasures }}</div>
     </div>
   </div>
 </template>
@@ -257,6 +276,7 @@ const getTiePath = (tie) => {
 const totalNotes = ref(0)
 const totalMeasures = ref(0)
 const overflowMeasures = ref(0)
+const underflowMeasures = ref(0)
 
 const computedRows = computed(() => {
   if (!props.tune?.lines) return []
@@ -265,9 +285,10 @@ const computedRows = computed(() => {
   const allMeasures = []
   let currentMeasure = { notes: [], ties: [], totalDuration: 0 }
   let noteCount = 0
+  let measureIndex = 0
   const meter = getMeterInfo()
-  // Calculate max duration for a measure (in abcjs units: 1 = whole note)
-  const maxMeasureDuration = meter.num / meter.den
+  // Calculate expected duration for a measure (in abcjs units: 1 = whole note)
+  const expectedMeasureDuration = meter.num / meter.den
   
   // Track notes for tie detection
   let prevNote = null
@@ -283,8 +304,21 @@ const computedRows = computed(() => {
           
           if (el.el_type === 'bar') {
             if (currentMeasure.notes.length > 0) {
-              // Check for overflow
-              currentMeasure.overflow = currentMeasure.totalDuration > maxMeasureDuration + 0.01
+              measureIndex++
+              // Check duration status
+              const diff = currentMeasure.totalDuration - expectedMeasureDuration
+              if (diff > 0.01) {
+                currentMeasure.durationStatus = 'overflow' // 时值超限
+                currentMeasure.durationDiff = diff
+              } else if (diff < -0.01) {
+                currentMeasure.durationStatus = 'underflow' // 时值不足
+                currentMeasure.durationDiff = diff
+              } else {
+                currentMeasure.durationStatus = 'ok'
+                currentMeasure.durationDiff = 0
+              }
+              currentMeasure.measureNumber = measureIndex
+              currentMeasure.expectedDuration = expectedMeasureDuration
               allMeasures.push(currentMeasure)
               currentMeasure = { notes: [], ties: [], totalDuration: 0 }
               prevNote = null
@@ -347,14 +381,29 @@ const computedRows = computed(() => {
     })
   })
   
+  // Handle last measure (without trailing bar)
   if (currentMeasure.notes.length > 0) {
-    currentMeasure.overflow = currentMeasure.totalDuration > maxMeasureDuration + 0.01
+    measureIndex++
+    const diff = currentMeasure.totalDuration - expectedMeasureDuration
+    if (diff > 0.01) {
+      currentMeasure.durationStatus = 'overflow'
+      currentMeasure.durationDiff = diff
+    } else if (diff < -0.01) {
+      currentMeasure.durationStatus = 'underflow'
+      currentMeasure.durationDiff = diff
+    } else {
+      currentMeasure.durationStatus = 'ok'
+      currentMeasure.durationDiff = 0
+    }
+    currentMeasure.measureNumber = measureIndex
+    currentMeasure.expectedDuration = expectedMeasureDuration
     allMeasures.push(currentMeasure)
   }
   
   totalNotes.value = noteCount
   totalMeasures.value = allMeasures.length
-  overflowMeasures.value = allMeasures.filter(m => m.overflow).length
+  overflowMeasures.value = allMeasures.filter(m => m.durationStatus === 'overflow').length
+  underflowMeasures.value = allMeasures.filter(m => m.durationStatus === 'underflow').length
   
   // Group into rows
   const rows = []
@@ -476,9 +525,28 @@ const svgHeight = computed(() => {
   stroke-width: 1.5;
 }
 
-/* Overflow warning */
-.overflow-warning-bg {
+/* Duration warning backgrounds */
+.duration-warning-bg.overflow {
   fill: rgba(255, 77, 79, 0.15);
+}
+
+.duration-warning-bg.underflow {
+  fill: rgba(250, 173, 20, 0.15);
+}
+
+/* Duration status indicator */
+.duration-label {
+  font-size: 10px;
+  text-anchor: end;
+  font-weight: bold;
+}
+
+.duration-label.overflow {
+  fill: #ff4d4f;
+}
+
+.duration-label.underflow {
+  fill: #faad14;
 }
 
 /* Debug Panel */
@@ -489,5 +557,10 @@ const svgHeight = computed(() => {
   border-radius: 4px;
   font-size: 12px;
   font-family: monospace;
+}
+
+.debug-panel .warning-text {
+  color: #ff4d4f;
+  font-weight: bold;
 }
 </style>
