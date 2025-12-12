@@ -585,7 +585,7 @@ const computedRows = computed(() => {
             }
             pendingStartBarType = null
             beatPosition = 0
-            // Don't reset prevNoteForTie - ties can cross barlines
+            // Ties and slurs can cross barlines - don't reset them
           } else if (el.el_type === 'note') {
             noteCount++
             const duration = el.duration || 0.25
@@ -623,7 +623,8 @@ const computedRows = computed(() => {
                 beatPosition += note.duration
               })
               currentMeasure.totalDuration += duration
-              prevNoteForTie = null
+              // Rests break ties
+              pendingTie = null
             } else if (el.pitches?.[0]) {
               const p = el.pitches[0]
               const jData = pitchToJianpu(p.pitch, keyRoot)
