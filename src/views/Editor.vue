@@ -66,6 +66,7 @@
           :active-note-ids="activeNoteIds"
           :debug-mode="true"
           @measure-issues="handleMeasureIssues"
+          @seek-to-note="(time) => synthControl && synthControl.seek(time)"
         />
       </div>
     </div>

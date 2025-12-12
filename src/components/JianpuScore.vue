@@ -15,164 +15,115 @@
       <g v-for="(row, rowIdx) in computedRows" :key="rowIdx" :transform="`translate(0, ${rowIdx * rowHeight})`">
         <!-- Measures in this row -->
         <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
-          <!-- Warning background for duration issues -->
-          <rect 
-            v-if="measure.durationStatus === 'overflow'"
-            class="duration-warning-bg overflow"
-            :x="0" :y="10" :width="measureWidth" :height="60"
-          />
-          <rect 
-            v-if="measure.durationStatus === 'underflow'"
-            class="duration-warning-bg underflow"
-            :x="0" :y="10" :width="measureWidth" :height="60"
-          />
+          <!-- Warning background -->
+          <rect v-if="measure.durationStatus === 'overflow'" class="duration-warning-bg overflow" :x="0" :y="10" :width="measureWidth" :height="60" />
+          <rect v-if="measure.durationStatus === 'underflow'" class="duration-warning-bg underflow" :x="0" :y="10" :width="measureWidth" :height="60" />
           
-          <!-- Duration status indicator -->
+          <!-- Duration status -->
           <g v-if="measure.durationStatus !== 'ok'" class="duration-indicator">
-            <text 
-              :x="measureWidth - 5" 
-              y="8" 
-              class="duration-label"
-              :class="measure.durationStatus"
-            >
+            <text :x="measureWidth - 5" y="8" class="duration-label" :class="measure.durationStatus">
               {{ measure.durationStatus === 'overflow' ? '⚠超' : '⚠缺' }}
             </text>
           </g>
+
+          <!-- Beams (合并的减时线) - Render BEFORE notes so they are behind if overlapping? Actually below is fine. -->
+          <g v-for="(beam, bIdx) in measure.beams" :key="'bm'+bIdx">
+            <line class="beam-line" :x1="beam.x1" :y1="beam.y" :x2="beam.x2" :y2="beam.y" />
+          </g>
           
-          <!-- Notes in this measure -->
+          <!-- Notes -->
           <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
              :transform="`translate(${note.x}, 0)` + (note.isGrace ? ' scale(0.65)' : '')"
-             :class="{ 'grace-note-group': note.isGrace }">
-            <!-- Highlight rect (check both id and originalId for split rests) -->
-            <rect 
-              v-if="!note.isGrace && (activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)))"
-              class="highlight-bg"
-              :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55"
-            />
+             :class="{ 'grace-note-group': note.isGrace, 'clickable-note': !note.isRest }"
+             @click="$emit('seek-to-note', note.timePercent)">
+             
+            <!-- Highlight -->
+            <rect v-if="!note.isGrace && (activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)))"
+              class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55" />
             
             <!-- Accidental -->
             <text v-if="note.accidental" class="accidental" :x="0" y="48">{{ note.accidental }}</text>
             
             <!-- High octave dots -->
             <template v-if="note.highDots > 0">
-              <circle v-for="d in note.highDots" :key="'h'+d" 
-                class="octave-dot" 
-                :cx="15" :cy="22 - (d-1)*10" r="3"
-              />
+              <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="22 - (d-1)*8" r="2.5" />
             </template>
             
             <!-- Main number -->
             <text class="note-number" :class="{ 'is-rest': note.isRest, 'is-grace': note.isGrace }" x="15" y="50">{{ note.number }}</text>
             
+            <!-- Grace Note Slash (倚音撇) -->
+            <line v-if="note.isGrace && note.isLastGrace" class="grace-slash" x1="15" y1="55" x2="35" y2="40" />
+
             <!-- Low octave dots -->
             <template v-if="note.lowDots > 0">
-              <circle v-for="d in note.lowDots" :key="'l'+d" 
-                class="octave-dot" 
-                :cx="15" :cy="68 + (d-1)*10 + note.underlines * 5" r="3"
-              />
+              <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*8 + (note.hasBeam ? 10 : note.underlines * 5)" r="2.5" />
             </template>
             
-            <!-- Underlines for short notes -->
-            <template v-if="note.underlines > 0">
-              <line v-for="u in note.underlines" :key="'u'+u"
-                class="underline"
-                :x1="3" :y1="60 + (u-1)*5" :x2="27" :y2="60 + (u-1)*5"
-              />
+            <!-- Underlines (only if NOT beamed) -->
+            <template v-if="!note.hasBeam && note.underlines > 0">
+              <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="60 + (u-1)*5" :x2="27" :y2="60 + (u-1)*5" />
             </template>
             
-            <!-- Augmentation dot (only for non-rest, non-grace notes) -->
-            <circle v-if="note.augDot && !note.isRest && !note.isGrace" class="aug-dot" :cx="32" :cy="45" r="3"/>
+            <!-- Augmentation dot -->
+            <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="32" :cy="45" r="3"/>
             
-            <!-- Dashes for long notes (延音线) -->
+            <!-- Dashes (延音线) - Short and thick -->
             <template v-if="note.dashes > 0 && !note.isRest && !note.isGrace">
-              <line v-for="d in note.dashes" :key="'d'+d"
-                class="dash"
-                :x1="32 + (d-1)*25" :y1="45" :x2="52 + (d-1)*25" :y2="45"
-              />
+              <line v-for="d in note.dashes" :key="'d'+d" class="dash"
+                :x1="30 + (d-1)*30" :y1="42" :x2="50 + (d-1)*30" :y2="42" />
             </template>
+
+            <!-- Lyric -->
+            <text v-if="note.lyric" class="lyric-text" x="15" y="85">{{ note.lyric }}</text>
           </g>
           
-          <!-- Tie lines (same pitch) -->
+          <!-- Tie lines (Filled Shapes) -->
           <template v-for="(tie, tIdx) in measure.ties" :key="'tie'+tIdx">
-            <path 
-              class="tie-line"
-              :d="getTiePath(tie)"
-            />
+            <path class="tie-line" :d="getTiePath(tie)" />
           </template>
           
-          <!-- Slur lines (different pitches) -->
+          <!-- Slur lines (Filled Shapes) -->
           <template v-for="(slur, sIdx) in measure.slurs" :key="'slur'+sIdx">
-            <path 
-              class="slur-line"
-              :d="getSlurPath(slur)"
-            />
+            <path class="slur-line" :d="getSlurPath(slur)" />
           </template>
           
-          <!-- Triplet brackets (三连音) -->
+          <!-- Triplet brackets -->
           <template v-for="(triplet, tpIdx) in measure.tripletGroups" :key="'triplet'+tpIdx">
-            <g class="triplet-bracket">
-              <!-- Left vertical line -->
-              <line :x1="triplet.startX + 5" :y1="12" :x2="triplet.startX + 5" :y2="18" class="triplet-line"/>
-              <!-- Horizontal line -->
-              <line :x1="triplet.startX + 5" :y1="12" :x2="triplet.endX + 25" :y2="12" class="triplet-line"/>
-              <!-- Right vertical line -->
-              <line :x1="triplet.endX + 25" :y1="12" :x2="triplet.endX + 25" :y2="18" class="triplet-line"/>
-              <!-- Number 3 in the middle -->
-              <text :x="(triplet.startX + triplet.endX + 30) / 2" y="10" class="triplet-number">3</text>
-            </g>
+            <text :x="(triplet.startX + triplet.endX + 30) / 2" y="15" class="triplet-number">3</text>
           </template>
           
-          <!-- Left bar line at start of measure (for left repeat) -->
+          <!-- Bar Lines -->
           <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(2, 0)">
-            <rect class="bar-thick" x="-2" y="20" width="3" height="45"/>
-            <line class="bar-line" x1="4" y1="20" x2="4" y2="65"/>
-            <circle class="repeat-dot" cx="10" cy="35" r="3"/>
-            <circle class="repeat-dot" cx="10" cy="50" r="3"/>
+            <rect class="bar-thick" x="-2" y="20" width="4" height="45"/>
+            <line class="bar-line" x1="5" y1="20" x2="5" y2="65"/>
+            <circle class="repeat-dot" cx="12" cy="38" r="2.5"/>
+            <circle class="repeat-dot" cx="12" cy="48" r="2.5"/>
           </g>
           
-          <!-- Bar line at end of measure - different types -->
           <g class="bar-lines" :transform="`translate(${measureWidth - 2}, 0)`">
-            <!-- Normal thin bar -->
             <line v-if="measure.barType === 'bar_thin'" class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
-            
-            <!-- Double bar (thin-thin) -->
             <template v-if="measure.barType === 'bar_dbl_thin'">
               <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
               <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
             </template>
-            
-            <!-- Final bar (thin-thick) -->
             <template v-if="measure.barType === 'bar_thin_thick'">
-              <line class="bar-line" x1="-6" y1="20" x2="-6" y2="65"/>
-              <rect class="bar-thick" x="-2" y="20" width="3" height="45"/>
+              <line class="bar-line" x1="-8" y1="20" x2="-8" y2="65"/>
+              <rect class="bar-thick" x="-4" y="20" width="4" height="45"/>
             </template>
-            
-            <!-- Left repeat |: -->
             <template v-if="measure.barType === 'bar_left_repeat'">
-              <rect class="bar-thick" x="-6" y="20" width="3" height="45"/>
-              <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
-              <circle class="repeat-dot" cx="6" cy="35" r="3"/>
-              <circle class="repeat-dot" cx="6" cy="50" r="3"/>
+              <rect class="bar-thick" x="-8" y="20" width="4" height="45"/>
+              <line class="bar-line" x1="-2" y1="20" x2="-2" y2="65"/>
+              <circle class="repeat-dot" cx="5" cy="38" r="2.5"/>
+              <circle class="repeat-dot" cx="5" cy="48" r="2.5"/>
             </template>
-            
-            <!-- Right repeat :| -->
             <template v-if="measure.barType === 'bar_right_repeat'">
-              <circle class="repeat-dot" cx="-12" cy="35" r="3"/>
-              <circle class="repeat-dot" cx="-12" cy="50" r="3"/>
-              <line class="bar-line" x1="-6" y1="20" x2="-6" y2="65"/>
-              <rect class="bar-thick" x="-2" y="20" width="3" height="45"/>
+              <circle class="repeat-dot" cx="-14" cy="38" r="2.5"/>
+              <circle class="repeat-dot" cx="-14" cy="48" r="2.5"/>
+              <line class="bar-line" x1="-7" y1="20" x2="-7" y2="65"/>
+              <rect class="bar-thick" x="-2" y="20" width="4" height="45"/>
             </template>
-            
-            <!-- Double repeat :|: -->
-            <template v-if="measure.barType === 'bar_dbl_repeat'">
-              <circle class="repeat-dot" cx="-16" cy="35" r="3"/>
-              <circle class="repeat-dot" cx="-16" cy="50" r="3"/>
-              <line class="bar-line" x1="-10" y1="20" x2="-10" y2="65"/>
-              <rect class="bar-thick" x="-6" y="20" width="3" height="45"/>
-              <line class="bar-line" x1="2" y1="20" x2="2" y2="65"/>
-              <circle class="repeat-dot" cx="8" cy="35" r="3"/>
-              <circle class="repeat-dot" cx="8" cy="50" r="3"/>
-            </template>
+            <!-- Double repeat omitted for brevity, handled by left/right combos usually -->
           </g>
         </g>
       </g>
@@ -455,28 +406,36 @@ const meterDisplay = computed(() => {
   return null
 })
 
-// Calculate tie path (arc above notes, for same pitch) - 连音线在音符下方
+// Calculate tie path (arc above notes) - 书法笔触 (Crescent shape)
+// y=20 (Above numbers, numbers are at y=50)
 const getTiePath = (tie) => {
   if (!tie.startX || !tie.endX) return ''
-  const x1 = tie.startX + 15
-  const x2 = tie.endX + 15
-  const y = 65 // Below the notes
+  const x1 = tie.startX + 20 // Center of note (NOTE_WIDTH 40 / 2)
+  const x2 = tie.endX + 20
+  const y = 15 // Above the notes
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const height = Math.min(12, Math.max(8, distance * 0.2)) // Arc height scales with distance
-  return `M ${x1} ${y} Q ${midX} ${y + height} ${x2} ${y}`
+  // Height scales with distance, but capped
+  const h = Math.min(15, Math.max(8, distance * 0.15)) 
+  const thickness = 1.5 + Math.min(3, distance * 0.05) // Thicker in middle for long ties
+  
+  // Top curve (going up) and Bottom curve (coming back, less high)
+  // M start Q control end Q control start Z
+  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
 
-// Calculate slur path (curved line below notes, for different pitches) - 圆滑线也在下方
+// Calculate slur path (also above)
 const getSlurPath = (slur) => {
   if (!slur.startX || !slur.endX) return ''
-  const x1 = slur.startX + 15
-  const x2 = slur.endX + 15
-  const y = 70 // Below the notes
+  const x1 = slur.startX + 20
+  const x2 = slur.endX + 20
+  const y = 10 // Slightly higher than ties
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const height = Math.min(15, Math.max(10, distance * 0.25))
-  return `M ${x1} ${y} Q ${midX} ${y + height} ${x2} ${y}`
+  const h = Math.min(20, Math.max(10, distance * 0.2))
+  const thickness = 2 + Math.min(4, distance * 0.05)
+  
+  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
 
 // Main computation
@@ -484,36 +443,189 @@ const totalNotes = ref(0)
 const totalMeasures = ref(0)
 const overflowMeasures = ref(0)
 const underflowMeasures = ref(0)
+const tuneDuration = ref(1) // 总时长，避免除以0
 
 const computedRows = computed(() => {
   if (!props.tune?.lines) return []
   
   let keyRoot = 0
   const allMeasures = []
-  let currentMeasure = { notes: [], ties: [], slurs: [], totalDuration: 0, barType: 'bar_thin', startBarType: null }
+  let currentMeasure = { notes: [], ties: [], slurs: [], totalDuration: 0, barType: 'bar_thin', startBarType: null, beams: [], tripletGroups: [] }
   let noteCount = 0
   let measureIndex = 0
   const meter = getMeterInfo()
-  // Calculate expected duration for a measure (in abcjs units: 1 = whole note)
   const expectedMeasureDuration = meter.num / meter.den
   
-  // Track for tie detection - global tracking across all measures
-  // key: pitch, value: { measureIdx, noteIdx, note }
-  let pendingTie = null
-  
-  // Track for slur detection - global tracking
-  let slurStartInfo = null // { measureIdx, noteIdx }
-  let inSlur = false
-  
-  // Track pending left repeat for next measure
-  let pendingStartBarType = null
-  
-  // Accumulated beat position for grouping
   let beatPosition = 0
-  
-  // Store all notes globally for cross-measure tie/slur resolution
-  const globalNotes = []
-  
+  let pendingTie = null
+  let slurStartInfo = null // { measureIdx, noteIdx, x_offset }
+  let inSlur = false
+  let pendingStartBarType = null
+  let currentAccumulatedDuration = 0
+  const globalNotes = []  // 用于跨小节连音线
+
+  // 第一步：先遍历一遍计算总时长，用于进度条计算（虽然abcjs有，但这里简单累加更便于控制）
+  let totalDur = 0
+  props.tune.lines.forEach(line => {
+    if (line.staff) line.staff.forEach(s => s.voices.forEach(v => v.forEach(el => {
+      if (el.el_type === 'note' && el.duration) totalDur += el.duration
+    })))
+  })
+  tuneDuration.value = totalDur || 1
+
+  // 辅助：生成横线 (Beams)
+  // 根据拍组内的音符时值，生成合并的下划线
+  // 规则：
+  // 1. 将小节内的音符按拍分组 (beatGroup)
+  // 2. 对每一拍，检查是否全是短音符 (duration < 1/4)
+  // 3. 如果是，生成连续的线条。
+  //    - 1条线：所有 < 1/2 的音符
+  //    - 2条线：所有 < 1/4 的音符
+  //    - 3条线：所有 < 1/8 的音符 ...
+  //    注意：简谱中通常 1/8 (0.125) 是一条线，1/16 (0.0625) 是两条线。
+  //    abcjs duration: 1/4音符 = 0.25. 
+  //    所以 0.125 (1/8音符) -> 1条线
+  //         0.0625 (1/16音符) -> 2条线
+  const generateBeams = (measure) => {
+    measure.beams = []
+    if (!measure.notes.length) return
+
+    // 按 beatGroup 分组
+    const groups = {}
+    measure.notes.forEach(note => {
+      if (note.isGrace) return // 倚音单独处理
+      const g = Math.floor(note.relativeStartTime / 0.25) // 假设以1/4音符为一拍
+      if (!groups[g]) groups[g] = []
+      groups[g].push(note)
+    })
+
+    // 处理每一组
+    Object.values(groups).forEach(groupNotes => {
+      if (groupNotes.length < 2) {
+         // 单个音符，回退到由于 note.underlines 属性渲染 (在 getDurationInfo 中计算，但这里我们覆盖它)
+         // 如果我们想统一用 beams 渲染，也要处理单个音符的情况。
+         // 为了兼容现有逻辑，如果是单个音符，我们让 note 自身保留 underlines 属性。
+         // 如果是多个音符，我们将生成 combined beams，并清除 note 自身的 underlines 以免重复？
+         // 不，简谱习惯：如果多个音符连写，横线是连在一起的。
+         return 
+      }
+
+      // 检查这一组是否都“可以”合并 (即都是短音符)
+      // 实际上简谱中，同一拍内的 8分、16分音符通常是连在一起的。
+      // 这里的逻辑稍微复杂：
+      // 第1层线 (8分音符层): 所有 duration <= 0.125 的音符连续区间
+      // 第2层线 (16分音符层): 所有 duration <= 0.0625 的音符连续区间
+      
+      const beamLevels = [0.125, 0.0625, 0.03125] // 对应 1条, 2条, 3条线
+      
+      beamLevels.forEach((threshold, levelIdx) => {
+        // levelIdx 0 -> 1st line (bottom), 1 -> 2nd line (above 1st)... 
+        // 其实简谱是从上往下加线的。1条线在最上，2条线在下面再加一条。
+        // y 坐标：baseY + levelIdx * 5
+        
+        let startNote = null
+        let endNote = null
+        
+        for (let i = 0; i < groupNotes.length; i++) {
+          const note = groupNotes[i]
+          if (note.duration <= threshold + 0.001 && !note.isRest) { // 休止符通常断开？
+             // 简谱中休止符 0 下面通常也有线
+             if (!startNote) startNote = note
+             endNote = note
+          } else {
+             // 结束一段
+             if (startNote && endNote && startNote !== endNote) {
+               measure.beams.push({
+                 x1: 0, // 布局后计算
+                 x2: 0,
+                 y: 60 + levelIdx * 5,
+                 startID: startNote.id,
+                 endID: endNote.id
+               })
+               // 标记这些音符这层线已由 beam 处理，不需要 note 自身渲染
+               // 但这需要复杂的 flag。
+               // 简单策略：如果生成了 beam，就设 flag hideUnderlines = true?
+               // 不行，可能同一拍里前两个连，后两个连。
+             }
+             startNote = null
+             endNote = null
+          }
+        }
+        // 尾部检查
+        if (startNote && endNote && startNote !== endNote) {
+           measure.beams.push({
+             x1: 0, x2: 0, y: 60 + levelIdx * 5,
+             startID: startNote.id, endID: endNote.id
+           })
+        }
+      })
+    })
+  }
+
+  const generateTriplets = (measure) => {
+    // Detect triplet groups based on startTriplet/endTriplet flags or contiguity
+    let currentGroup = null
+    
+    measure.notes.forEach((note) => {
+      if (note.startTriplet) {
+        currentGroup = { startNote: note, endNote: null }
+      }
+      
+      // If we are in a group, this note belongs to it (presumably)
+      // But we strictly rely on start/end flags usually. 
+      // What if intermediate notes have no flags?
+      // Assuming well-formed ABC from abcjs: startTriplet starts, endTriplet ends.
+      
+      if (note.endTriplet) {
+        if (currentGroup) {
+          currentGroup.endNote = note
+          // Finalize group
+           // Calculate coords based on notes
+           // startX = startNote.x + 5
+           // endX = endNote.x + width - 5
+           const s = currentGroup.startNote
+           const e = currentGroup.endNote
+           measure.tripletGroups.push({
+             startX: s.x + 5,
+             endX: e.x + (e.displayWidth > 20 ? 25 : e.displayWidth - 5)
+           })
+           currentGroup = null
+        }
+      }
+    })
+  }
+
+  // 布局函数更新
+  const layoutMeasureWithBeams = (measure) => {
+    layoutMeasureNotes(measure) // 先计算 x
+    
+    // 生成 beams 并计算坐标
+    generateBeams(measure)
+    generateTriplets(measure)
+    measure.beams.forEach(beam => {
+      // Find start and end index in notes array
+      const startIdx = measure.notes.findIndex(n => n.id === beam.startID)
+      const endIdx = measure.notes.findIndex(n => n.id === beam.endID)
+      
+      if (startIdx !== -1 && endIdx !== -1) {
+          const s = measure.notes[startIdx]
+          const e = measure.notes[endIdx]
+          
+          // 简谱横线位置微调：startX 到 endX
+          // startX: note.x + 5 (数字左边缘)
+          // endX: note.x + note.width - 5 (数字右边缘)
+          // 数字居中在 x+15, 宽约10-15
+          beam.x1 = s.x + 5
+          beam.x2 = e.x + (e.displayWidth > 20 ? 25 : e.displayWidth - 5)
+          
+          // 标记涉及的音符，让它们不要渲染自带的 underline
+          for(let k=startIdx; k<=endIdx; k++) {
+              measure.notes[k].hasBeam = true
+          }
+      }
+    })
+  }
+
   props.tune.lines.forEach(line => {
     if (!line.staff) return
     line.staff.forEach(staff => {
@@ -523,79 +635,58 @@ const computedRows = computed(() => {
           const elId = el._myId || null
           
           if (el.el_type === 'bar') {
-            // Debug bar type
-            console.log('Bar type:', el.type)
-            
-            // Only push measure if it has notes (avoid empty first measure)
             if (currentMeasure.notes.length > 0) {
               measureIndex++
-              // Check duration status
+              // Duration status check
               const diff = currentMeasure.totalDuration - expectedMeasureDuration
-              if (diff > 0.01) {
-                currentMeasure.durationStatus = 'overflow'
-                currentMeasure.durationDiff = diff
-              } else if (diff < -0.01) {
-                currentMeasure.durationStatus = 'underflow'
-                currentMeasure.durationDiff = diff
-              } else {
-                currentMeasure.durationStatus = 'ok'
-                currentMeasure.durationDiff = 0
-              }
+              if (diff > 0.01) currentMeasure.durationStatus = 'overflow'
+              else if (diff < -0.01) currentMeasure.durationStatus = 'underflow'
+              else currentMeasure.durationStatus = 'ok'
+              
               currentMeasure.measureNumber = measureIndex
               currentMeasure.expectedDuration = expectedMeasureDuration
               
-              // Determine bar type from el.type
+              // Handle bar types
               const barType = el.type || 'bar_thin'
-              
-              // Handle bar types - right repeat goes to current measure end
-              // left repeat goes to next measure start
-              // Support different abcjs bar type names
               if (barType === 'bar_left_repeat' || barType === 'bar_thick_thin') {
-                // Left repeat |: put at start of NEXT measure
                 currentMeasure.barType = 'bar_thin'
                 pendingStartBarType = 'bar_left_repeat'
               } else if (barType === 'bar_dbl_repeat') {
-                // Double repeat :|: right repeat at current end, left repeat at next start
                 currentMeasure.barType = 'bar_right_repeat'
                 pendingStartBarType = 'bar_left_repeat'
               } else if (barType === 'bar_right_repeat') {
-                // Right repeat :| at end of current measure
                 currentMeasure.barType = 'bar_right_repeat'
               } else {
                 currentMeasure.barType = barType
               }
               
-              // Recalculate note positions based on actual content
-              layoutMeasureNotes(currentMeasure)
-              
+              // Layout
+              layoutMeasureWithBeams(currentMeasure)
               allMeasures.push(currentMeasure)
             } else if (el.type === 'bar_left_repeat' || el.type === 'bar_thick_thin') {
-              // First bar is a left repeat - save for first measure
               pendingStartBarType = 'bar_left_repeat'
             }
             
-            // Start new measure
             currentMeasure = { 
-              notes: [], 
-              ties: [], 
-              slurs: [],
-              totalDuration: 0, 
-              barType: 'bar_thin',
-              startBarType: pendingStartBarType
+              notes: [], ties: [], slurs: [], beams: [], tripletGroups: [],
+              totalDuration: 0, barType: 'bar_thin', startBarType: pendingStartBarType 
             }
             pendingStartBarType = null
             beatPosition = 0
-            // Ties and slurs can cross barlines - don't reset them
+            
           } else if (el.el_type === 'note') {
             noteCount++
             const duration = el.duration || 0.25
+            const lyric = el.lyric ? el.lyric.map(l => l.content).join('') : null
             
-            // Check for grace notes first
+            // Grace notes
             if (el.gracenotes && el.gracenotes.length > 0) {
-              // Process grace notes - they appear before the main note
               el.gracenotes.forEach((grace, graceIdx) => {
                 const graceData = pitchToJianpu(grace.pitch, keyRoot)
-                const graceNote = {
+                // 修复倚音：添加 isTriplet 标记如果需要（虽然 grace notes 很少是 triplet）
+                // 更重要的是，倚音是一个 group，我们需要某种方式画那个“撇”
+                // 以及如果是三连倚音，加上“3”
+                currentMeasure.notes.push({
                   id: `${elId}_grace_${graceIdx}`,
                   x: 0,
                   number: graceData.number,
@@ -605,121 +696,97 @@ const computedRows = computed(() => {
                   lowDots: graceData.octave < 0 ? Math.abs(graceData.octave) : 0,
                   accidental: grace.accidental ? (ACCIDENTAL_SYMBOLS[grace.accidental] || null) : null,
                   dashes: 0,
-                  underlines: 2, // Grace notes are typically 16th notes
+                  underlines: 1, // 倚音固定一条线
                   augDot: false,
-                  duration: 0, // Grace notes don't take time
-                  pitch: grace.pitch
-                }
-                currentMeasure.notes.push(graceNote)
+                  duration: 0,
+                  pitch: grace.pitch,
+                  isLastGrace: graceIdx === el.gracenotes.length - 1, // 标记是否最后一个倚音，用于画撇
+                  parentNoteId: elId, // 关联主音符
+                  lyric: null
+                })
               })
             }
             
             if (el.rest) {
-              // Split long rests into multiple quarter note rests
-              const restNotes = splitRestIntoQuarters(duration, elId, noteCount)
-              restNotes.forEach(note => {
-                note.beatGroup = Math.floor(beatPosition / 0.25)
-                currentMeasure.notes.push(note)
-                beatPosition += note.duration
-              })
-              currentMeasure.totalDuration += duration
-              // Rests break ties
-              pendingTie = null
+               // Rests
+               const restNotes = splitRestIntoQuarters(duration, elId, noteCount)
+               restNotes.forEach((note, idx) => {
+                 note.relativeStartTime = beatPosition
+                 // 只有第一个休止符携带歌词（如果有）
+                 if (idx === 0) note.lyric = lyric
+                 note.timePercent = currentAccumulatedDuration / tuneDuration.value
+                 
+                 currentMeasure.notes.push(note)
+                 beatPosition += note.duration
+                 currentAccumulatedDuration += note.duration
+               })
+               currentMeasure.totalDuration += duration
+               pendingTie = null
             } else if (el.pitches?.[0]) {
-              const p = el.pitches[0]
-              const jData = pitchToJianpu(p.pitch, keyRoot)
-              const rhythm = getDurationInfo(duration, false)
-              
-              // Check for triplet
-              const isTriplet = el.startTriplet || el.endTriplet || (el.triplet !== undefined)
-              
-              // Check tie flags - try both pitch level and element level
-              const hasStartTie = !!(p.startTie || el.startTie)
-              const hasEndTie = !!(p.endTie || el.endTie)
-              
-              // Check slur flags
-              const hasStartSlur = !!(p.startSlur || el.startSlur)
-              const hasEndSlur = !!(p.endSlur || el.endSlur)
-              
-              const noteObj = {
-                id: elId,
-                x: 0, // Will be calculated later
-                number: jData.number,
-                isRest: false,
-                isGrace: false,
-                highDots: jData.octave > 0 ? jData.octave : 0,
-                lowDots: jData.octave < 0 ? Math.abs(jData.octave) : 0,
-                accidental: p.accidental ? (ACCIDENTAL_SYMBOLS[p.accidental] || null) : null,
-                ...rhythm,
-                duration: duration,
-                pitch: p.pitch,
-                hasTieStart: hasStartTie,
-                hasTieEnd: hasEndTie,
-                hasSlurStart: hasStartSlur,
-                hasSlurEnd: hasEndSlur,
-                beatGroup: Math.floor(beatPosition / 0.25),
-                isTriplet: isTriplet,
-                startTriplet: el.startTriplet,
-                endTriplet: el.endTriplet
-              }
-              
-              // Record current note index before adding
-              const noteIndex = currentMeasure.notes.length
-              const currentMeasureIdx = allMeasures.length // Index of current measure (before it's pushed)
-              
-              currentMeasure.notes.push(noteObj)
-              currentMeasure.totalDuration += duration
-              beatPosition += duration
-              
-              // Track global note position
-              globalNotes.push({
-                measureIdx: currentMeasureIdx,
-                noteIdx: noteIndex,
-                note: noteObj
-              })
-              
-              // Check for tie end - if we have a pending tie start with same pitch
-              if (pendingTie && pendingTie.pitch === noteObj.pitch) {
-                // Same measure tie
-                if (pendingTie.measureIdx === currentMeasureIdx) {
-                  currentMeasure.ties.push({
-                    startIdx: pendingTie.noteIdx,
-                    endIdx: noteIndex
-                  })
-                }
-                // Cross-measure tie - we'll need to handle this differently
-                // For now, just clear the pending tie
-                pendingTie = null
-              }
-              
-              // If this note starts a tie, record it
-              if (hasStartTie) {
-                pendingTie = {
-                  measureIdx: currentMeasureIdx,
-                  noteIdx: noteIndex,
-                  pitch: noteObj.pitch
-                }
-              }
-              
-              // Check for slur start
-              if (hasStartSlur) {
-                inSlur = true
-                slurStartInfo = { measureIdx: currentMeasureIdx, noteIdx: noteIndex }
-              }
-              
-              // Check for slur end
-              if (hasEndSlur && inSlur && slurStartInfo) {
-                // Same measure slur
-                if (slurStartInfo.measureIdx === currentMeasureIdx) {
-                  currentMeasure.slurs.push({
-                    startIdx: slurStartInfo.noteIdx,
-                    endIdx: noteIndex
-                  })
-                }
-                // Cross-measure slur would need special handling
-                inSlur = false
-                slurStartInfo = null
-              }
+               const p = el.pitches[0]
+               const jData = pitchToJianpu(p.pitch, keyRoot)
+               const rhythm = getDurationInfo(duration, false)
+               const isTriplet = el.startTriplet || el.endTriplet || (el.triplet !== undefined)
+               
+               const noteObj = {
+                 id: elId,
+                 x: 0,
+                 number: jData.number,
+                 isRest: false,
+                 isGrace: false,
+                 highDots: jData.octave > 0 ? jData.octave : 0,
+                 lowDots: jData.octave < 0 ? Math.abs(jData.octave) : 0,
+                 accidental: p.accidental ? (ACCIDENTAL_SYMBOLS[p.accidental] || null) : null,
+                 ...rhythm,
+                 duration: duration,
+                 pitch: p.pitch,
+                 hasTieStart: !!(p.startTie || el.startTie),
+                 hasTieEnd: !!(p.endTie || el.endTie),
+                 hasSlurStart: !!(p.startSlur || el.startSlur),
+                 hasSlurEnd: !!(p.endSlur || el.endSlur),
+                 isTriplet: isTriplet,
+                 startTriplet: el.startTriplet,
+                 endTriplet: el.endTriplet,
+                 lyric: lyric,
+                 relativeStartTime: beatPosition,
+                 timePercent: currentAccumulatedDuration / tuneDuration.value
+               }
+               
+               // Tie/Slur logic (same as before)
+               const noteIndex = currentMeasure.notes.length
+               const currentMeasureIdx = allMeasures.length
+               currentMeasure.notes.push(noteObj)
+               currentMeasure.totalDuration += duration
+               beatPosition += duration
+               currentAccumulatedDuration += duration
+               
+               globalNotes.push({ measureIdx: currentMeasureIdx, noteIdx: noteIndex, note: noteObj })
+               
+               // Tie Logic
+               if (pendingTie && pendingTie.pitch === noteObj.pitch) {
+                  if (pendingTie.measureIdx === currentMeasureIdx) {
+                    currentMeasure.ties.push({ startIdx: pendingTie.noteIdx, endIdx: noteIndex })
+                  } else {
+                    // 跨小节连音线：标记在两个音符上，渲染时画半截？或者在 Measure 渲染层处理 Cross-measure
+                    // 这里简化：暂不支持跨小节连线的完美渲染，或者只在当前小节画起始
+                    noteObj.hasTieEnd = true 
+                  }
+                  pendingTie = null
+               }
+               if (noteObj.hasTieStart) pendingTie = { measureIdx: currentMeasureIdx, noteIdx: noteIndex, pitch: noteObj.pitch }
+               
+               // Slur Logic (Simplified)
+               if (noteObj.hasSlurStart) {
+                 inSlur = true
+                 slurStartInfo = { measureIdx: currentMeasureIdx, noteIdx: noteIndex }
+               }
+               if (noteObj.hasSlurEnd && inSlur && slurStartInfo) {
+                 if (slurStartInfo.measureIdx === currentMeasureIdx) {
+                   currentMeasure.slurs.push({ startIdx: slurStartInfo.noteIdx, endIdx: noteIndex })
+                 }
+                 inSlur = false
+                 slurStartInfo = null
+               }
             }
           }
         })
@@ -727,30 +794,19 @@ const computedRows = computed(() => {
     })
   })
   
-  // Handle last measure (without trailing bar)
+  // Last measure
   if (currentMeasure.notes.length > 0) {
-    measureIndex++
-    const diff = currentMeasure.totalDuration - expectedMeasureDuration
-    if (diff > 0.01) {
-      currentMeasure.durationStatus = 'overflow'
-      currentMeasure.durationDiff = diff
-    } else if (diff < -0.01) {
-      currentMeasure.durationStatus = 'underflow'
-      currentMeasure.durationDiff = diff
-    } else {
-      currentMeasure.durationStatus = 'ok'
-      currentMeasure.durationDiff = 0
-    }
-    currentMeasure.measureNumber = measureIndex
-    currentMeasure.expectedDuration = expectedMeasureDuration
-    layoutMeasureNotes(currentMeasure)
-    allMeasures.push(currentMeasure)
+      currentMeasure.measureNumber = measureIndex + 1
+      currentMeasure.expectedDuration = expectedMeasureDuration
+      currentMeasure.durationStatus = 'ok' // 最后一小节通常不满，视为OK
+      if (currentMeasure.totalDuration - expectedMeasureDuration > 0.01) currentMeasure.durationStatus = 'overflow'
+      
+      layoutMeasureWithBeams(currentMeasure)
+      allMeasures.push(currentMeasure)
   }
-  
+
   totalNotes.value = noteCount
   totalMeasures.value = allMeasures.length
-  overflowMeasures.value = allMeasures.filter(m => m.durationStatus === 'overflow').length
-  underflowMeasures.value = allMeasures.filter(m => m.durationStatus === 'underflow').length
   
   // Emit measure issues for editor highlighting
   const issues = allMeasures
@@ -768,27 +824,18 @@ const computedRows = computed(() => {
     emit('measure-issues', issues)
   }, 0)
   
-  // Group into rows
+  // Group Rows
+  // 重置
   const rows = []
   let currentRow = { measures: [] }
-  
   allMeasures.forEach((m, idx) => {
-    const rowIdx = currentRow.measures.length
-    currentRow.measures.push({ 
-      ...m, 
-      x: rowIdx * (measureWidth + 5), // Small gap between measures
-      width: measureWidth 
-    })
-    
+    currentRow.measures.push({ ...m, x: currentRow.measures.length * (measureWidth + 15) }) // 增加间距
     if ((idx + 1) % MEASURES_PER_ROW === 0) {
       rows.push(currentRow)
       currentRow = { measures: [] }
     }
   })
-  
-  if (currentRow.measures.length > 0) {
-    rows.push(currentRow)
-  }
+  if (currentRow.measures.length > 0) rows.push(currentRow)
   
   return rows
 })
@@ -810,6 +857,14 @@ const svgHeight = computed(() => {
   background: #fff;
   padding: 30px;
 }
+
+@font-face {
+  font-family: 'JianpuPoints';
+  src: url('/fonts/JianpuDigits.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
 
 .header-info {
   text-align: center;
@@ -840,10 +895,11 @@ const svgHeight = computed(() => {
 /* SVG Styles */
 .note-number {
   font-size: 28px;
-  font-family: 'Times New Roman', 'SimSun', serif;
-  font-weight: 500;
+  font-family: 'JianpuPoints', 'Times New Roman', serif;
+  font-weight: normal;
   fill: #000;
   text-anchor: middle;
+  cursor: pointer;
 }
 
 .note-number.is-rest {
@@ -894,18 +950,23 @@ const svgHeight = computed(() => {
   rx: 4;
 }
 
-/* Tie line (连音线 - 音符下方弧线) */
+/* Tie line (连音线 - 音符上方弧线，现在是填充形状) */
 .tie-line {
-  fill: none;
-  stroke: #000;
-  stroke-width: 1.5;
+  fill: #000;
+  stroke: none;
 }
 
-/* Slur line (圆滑线 - 音符下方弧线) */
+/* Slur line (圆滑线 - 音符上方弧线，现在是填充形状) */
 .slur-line {
-  fill: none;
+  fill: #000;
+  stroke: none;
+}
+
+/* Beams (合并的减时线) */
+.beam-line {
   stroke: #000;
-  stroke-width: 1.5;
+  stroke-width: 2.5; /* Slightly thicker for better visibility */
+  stroke-linecap: round;
 }
 
 /* Grace notes (倚音) */
@@ -926,14 +987,38 @@ const svgHeight = computed(() => {
   fill: #333;
 }
 
+.grace-slash {
+  stroke: #000;
+  stroke-width: 1.5;
+}
+
+/* Lyrics */
+.lyric-text {
+  font-size: 14px;
+  fill: #333;
+  text-anchor: middle;
+  font-family: sans-serif;
+}
+
+/* Interactive Interaction */
+.clickable-note {
+  cursor: pointer;
+}
+
+.clickable-note:hover .note-number {
+  fill: #d03050; /* Highlight color on hover */
+  font-weight: bold;
+}
+
 /* Triplet bracket */
 .triplet-bracket .triplet-line {
   stroke: #444;
   stroke-width: 1;
 }
 
-.triplet-bracket .triplet-number {
-  font-size: 10px;
+.triplet-number {
+  font-size: 12px; /* Slightly larger */
+  font-style: italic;
   font-weight: bold;
   fill: #444;
   text-anchor: middle;
