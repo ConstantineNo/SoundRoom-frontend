@@ -98,8 +98,50 @@
             />
           </template>
           
-          <!-- Bar line at end of measure -->
-          <line class="bar-line" :x1="measureWidth" y1="25" :x2="measureWidth" y2="75"/>
+          <!-- Bar line at end of measure - different types -->
+          <g class="bar-lines" :transform="`translate(${measureWidth - 2}, 0)`">
+            <!-- Normal thin bar -->
+            <line v-if="measure.barType === 'bar_thin'" class="bar-line" x1="0" y1="25" x2="0" y2="75"/>
+            
+            <!-- Double bar (thin-thin) -->
+            <template v-if="measure.barType === 'bar_dbl_thin'">
+              <line class="bar-line" x1="-4" y1="25" x2="-4" y2="75"/>
+              <line class="bar-line" x1="0" y1="25" x2="0" y2="75"/>
+            </template>
+            
+            <!-- Final bar (thin-thick) -->
+            <template v-if="measure.barType === 'bar_thin_thick'">
+              <line class="bar-line" x1="-6" y1="25" x2="-6" y2="75"/>
+              <rect class="bar-thick" x="-2" y="25" width="4" height="50"/>
+            </template>
+            
+            <!-- Left repeat |: -->
+            <template v-if="measure.barType === 'bar_left_repeat'">
+              <rect class="bar-thick" x="-6" y="25" width="4" height="50"/>
+              <line class="bar-line" x1="0" y1="25" x2="0" y2="75"/>
+              <circle class="repeat-dot" cx="6" cy="42" r="2.5"/>
+              <circle class="repeat-dot" cx="6" cy="58" r="2.5"/>
+            </template>
+            
+            <!-- Right repeat :| -->
+            <template v-if="measure.barType === 'bar_right_repeat'">
+              <circle class="repeat-dot" cx="-12" cy="42" r="2.5"/>
+              <circle class="repeat-dot" cx="-12" cy="58" r="2.5"/>
+              <line class="bar-line" x1="-6" y1="25" x2="-6" y2="75"/>
+              <rect class="bar-thick" x="-2" y="25" width="4" height="50"/>
+            </template>
+            
+            <!-- Double repeat :|: -->
+            <template v-if="measure.barType === 'bar_dbl_repeat'">
+              <circle class="repeat-dot" cx="-16" cy="42" r="2.5"/>
+              <circle class="repeat-dot" cx="-16" cy="58" r="2.5"/>
+              <line class="bar-line" x1="-10" y1="25" x2="-10" y2="75"/>
+              <rect class="bar-thick" x="-6" y="25" width="4" height="50"/>
+              <line class="bar-line" x1="2" y1="25" x2="2" y2="75"/>
+              <circle class="repeat-dot" cx="8" cy="42" r="2.5"/>
+              <circle class="repeat-dot" cx="8" cy="58" r="2.5"/>
+            </template>
+          </g>
         </g>
       </g>
     </svg>
@@ -118,13 +160,15 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   tune: { type: Object, default: null },
   activeNoteIds: { type: Array, default: () => [] },
   debugMode: { type: Boolean, default: false }
 })
+
+const emit = defineEmits(['measure-issues'])
 
 const activeIds = computed(() => new Set(props.activeNoteIds))
 
@@ -182,19 +226,46 @@ const getDurationInfo = (duration, isRest = false) => {
     return { dashes: 0, underlines, augDot: false }
   }
   
-  // For regular notes
-  if (Math.abs(ratio - 1.5) < 0.05) { augDot = true }
-  else if (Math.abs(ratio - 0.75) < 0.05) { underlines = 1; augDot = true }
-  else if (Math.abs(ratio - 3) < 0.05) { dashes = 2; augDot = true }
-  else if (Math.abs(ratio - 0.375) < 0.05) { underlines = 2; augDot = true }
-  else {
-    if (ratio >= 2) dashes = Math.round(ratio) - 1
-    else if (ratio < 0.99) {
-      if (ratio <= 0.51) underlines = 1
-      if (ratio <= 0.26) underlines = 2
-      if (ratio <= 0.13) underlines = 3
-    }
+  // For regular notes - handle common durations
+  // 附点四分音符 (1.5拍) = 只显示附点，不需要延音线
+  if (Math.abs(ratio - 1.5) < 0.05) { 
+    augDot = true 
+    dashes = 0
   }
+  // 附点八分音符 (0.75拍)
+  else if (Math.abs(ratio - 0.75) < 0.05) { 
+    underlines = 1 
+    augDot = true 
+  }
+  // 附点二分音符 (3拍) = 附点 + 2条延音线
+  else if (Math.abs(ratio - 3) < 0.05) { 
+    dashes = 2 
+    augDot = true 
+  }
+  // 附点十六分音符 (0.375拍)
+  else if (Math.abs(ratio - 0.375) < 0.05) { 
+    underlines = 2 
+    augDot = true 
+  }
+  // 二分音符 (2拍) = 1条延音线
+  else if (Math.abs(ratio - 2) < 0.05) {
+    dashes = 1
+  }
+  // 全音符 (4拍) = 3条延音线
+  else if (Math.abs(ratio - 4) < 0.05) {
+    dashes = 3
+  }
+  // 其他长音符
+  else if (ratio > 2) {
+    dashes = Math.round(ratio) - 1
+  }
+  // 短音符
+  else if (ratio < 0.99) {
+    if (ratio <= 0.51) underlines = 1
+    if (ratio <= 0.26) underlines = 2
+    if (ratio <= 0.13) underlines = 3
+  }
+  
   return { dashes, underlines, augDot }
 }
 
@@ -283,7 +354,7 @@ const computedRows = computed(() => {
   
   let keyRoot = 0
   const allMeasures = []
-  let currentMeasure = { notes: [], ties: [], totalDuration: 0 }
+  let currentMeasure = { notes: [], ties: [], totalDuration: 0, barType: 'bar_thin' }
   let noteCount = 0
   let measureIndex = 0
   const meter = getMeterInfo()
@@ -294,6 +365,9 @@ const computedRows = computed(() => {
   let prevNote = null
   let prevNoteX = 0
   
+  // Accumulated beat position for grouping
+  let beatPosition = 0
+  
   props.tune.lines.forEach(line => {
     if (!line.staff) return
     line.staff.forEach(staff => {
@@ -303,7 +377,7 @@ const computedRows = computed(() => {
           const elId = el._myId || null
           
           if (el.el_type === 'bar') {
-            if (currentMeasure.notes.length > 0) {
+            if (currentMeasure.notes.length > 0 || allMeasures.length === 0) {
               measureIndex++
               // Check duration status
               const diff = currentMeasure.totalDuration - expectedMeasureDuration
@@ -319,21 +393,30 @@ const computedRows = computed(() => {
               }
               currentMeasure.measureNumber = measureIndex
               currentMeasure.expectedDuration = expectedMeasureDuration
+              
+              // Determine bar type from el.type
+              // Common types: bar_thin, bar_thin_thick, bar_thick_thin, bar_right_repeat, bar_left_repeat, bar_dbl_repeat
+              currentMeasure.barType = el.type || 'bar_thin'
+              
               allMeasures.push(currentMeasure)
-              currentMeasure = { notes: [], ties: [], totalDuration: 0 }
+              currentMeasure = { notes: [], ties: [], totalDuration: 0, barType: 'bar_thin' }
               prevNote = null
               prevNoteX = 0
+              beatPosition = 0
             }
           } else if (el.el_type === 'note') {
             noteCount++
             const duration = el.duration || 0.25
             
             if (el.rest) {
-              // Split long rests into quarter note rests
+              // Split long rests into multiple quarter note rests
               const restNotes = splitRestIntoQuarters(duration, elId, noteCount)
               restNotes.forEach(note => {
-                note.x = currentMeasure.notes.length * (measureWidth - MEASURE_PADDING) / 4 // Evenly distribute
+                // Calculate beat group for this note
+                note.beatGroup = Math.floor(beatPosition / 0.25)
+                note.x = currentMeasure.notes.length * (measureWidth - MEASURE_PADDING) / 4
                 currentMeasure.notes.push(note)
+                beatPosition += note.duration
               })
               currentMeasure.totalDuration += duration
               prevNote = null
@@ -344,6 +427,9 @@ const computedRows = computed(() => {
               const noteWidth = NOTE_WIDTH + rhythm.dashes * DASH_WIDTH
               
               const noteX = currentMeasure.notes.length * (measureWidth - MEASURE_PADDING) / 4
+              
+              // Check for triplet
+              const isTriplet = el.startTriplet || el.endTriplet || el.triplet
               
               const noteObj = {
                 id: elId,
@@ -358,11 +444,16 @@ const computedRows = computed(() => {
                 duration: duration,
                 pitch: p.pitch,
                 startTie: p.startTie,
-                endTie: p.endTie
+                endTie: p.endTie,
+                beatGroup: Math.floor(beatPosition / 0.25),
+                isTriplet: isTriplet,
+                startTriplet: el.startTriplet,
+                endTriplet: el.endTriplet
               }
               
               currentMeasure.notes.push(noteObj)
               currentMeasure.totalDuration += duration
+              beatPosition += duration
               
               // Check for tie with previous note
               if (prevNote && prevNote.startTie && p.endTie && prevNote.pitch === p.pitch) {
@@ -404,6 +495,22 @@ const computedRows = computed(() => {
   totalMeasures.value = allMeasures.length
   overflowMeasures.value = allMeasures.filter(m => m.durationStatus === 'overflow').length
   underflowMeasures.value = allMeasures.filter(m => m.durationStatus === 'underflow').length
+  
+  // Emit measure issues for editor highlighting
+  const issues = allMeasures
+    .filter(m => m.durationStatus !== 'ok')
+    .map(m => ({
+      measureNumber: m.measureNumber,
+      status: m.durationStatus,
+      expected: m.expectedDuration,
+      actual: m.totalDuration,
+      diff: m.durationDiff
+    }))
+  
+  // Use setTimeout to avoid emit during render
+  setTimeout(() => {
+    emit('measure-issues', issues)
+  }, 0)
   
   // Group into rows
   const rows = []
@@ -511,6 +618,14 @@ const svgHeight = computed(() => {
 .bar-line {
   stroke: #666;
   stroke-width: 1;
+}
+
+.bar-thick {
+  fill: #444;
+}
+
+.repeat-dot {
+  fill: #444;
 }
 
 .highlight-bg {

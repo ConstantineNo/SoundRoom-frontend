@@ -20,14 +20,39 @@
     <div class="main-content">
       <!-- Left: Code Editor -->
       <div class="pane left-pane">
-        <textarea 
-          class="code-editor" 
-          v-model="abcCode" 
-          placeholder="在此输入ABC代码..."
-          spellcheck="false"
-        ></textarea>
+        <div class="editor-wrapper">
+          <div class="line-numbers" ref="lineNumbersRef">
+            <div 
+              v-for="(line, idx) in codeLines" 
+              :key="idx" 
+              class="line-number"
+              :class="{ 
+                'error-line': errorLineNumbers.has(idx + 1),
+                'overflow-line': overflowLineNumbers.has(idx + 1),
+                'underflow-line': underflowLineNumbers.has(idx + 1)
+              }"
+            >{{ idx + 1 }}</div>
+          </div>
+          <textarea 
+            ref="textareaRef"
+            class="code-editor" 
+            v-model="abcCode" 
+            placeholder="在此输入ABC代码..."
+            spellcheck="false"
+            @scroll="syncScroll"
+          ></textarea>
+        </div>
         <div v-if="syntaxError" class="error-bar">
           {{ syntaxError }}
+        </div>
+        <div v-if="measureIssues.length > 0" class="issue-bar">
+          <span class="issue-title">时值问题:</span>
+          <span v-for="issue in measureIssues" :key="issue.measureNumber" 
+            class="issue-item"
+            :class="issue.status"
+          >
+            小节{{ issue.measureNumber }}: {{ issue.status === 'overflow' ? '超限' : '不足' }}
+          </span>
         </div>
       </div>
       
@@ -40,6 +65,7 @@
           :tune="visualObj" 
           :active-note-ids="activeNoteIds"
           :debug-mode="true"
+          @measure-issues="handleMeasureIssues"
         />
       </div>
     </div>
@@ -47,7 +73,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import abcjs from 'abcjs'
@@ -62,6 +88,10 @@ const router = useRouter()
 const message = useMessage()
 const userStore = useUserStore()
 
+// Editor refs
+const textareaRef = ref(null)
+const lineNumbersRef = ref(null)
+
 const scoreId = route.params.scoreId
 const score = ref(null)
 const abcCode = ref('')
@@ -70,10 +100,79 @@ const syntaxError = ref('')
 const viewMode = ref('staff') // 'staff' | 'jianpu'
 const visualObj = ref(null)
 const activeNoteIds = ref([]) // IDs of notes currently playing
+const measureIssues = ref([]) // 小节时值问题
 
 let synthControl = null
 // 建立 SVG 元素到 _myId 的映射
 const elemToIdMap = new Map()
+
+// Computed: 代码行
+const codeLines = computed(() => abcCode.value.split('\n'))
+
+// Computed: 错误行号集合（语法错误）
+const errorLineNumbers = computed(() => new Set())
+
+// Computed: 超限行号集合
+const overflowLineNumbers = computed(() => {
+  const lineNums = new Set()
+  measureIssues.value
+    .filter(i => i.status === 'overflow')
+    .forEach(issue => {
+      const lineNum = findMeasureLineNumber(issue.measureNumber)
+      if (lineNum > 0) lineNums.add(lineNum)
+    })
+  return lineNums
+})
+
+// Computed: 不足行号集合  
+const underflowLineNumbers = computed(() => {
+  const lineNums = new Set()
+  measureIssues.value
+    .filter(i => i.status === 'underflow')
+    .forEach(issue => {
+      const lineNum = findMeasureLineNumber(issue.measureNumber)
+      if (lineNum > 0) lineNums.add(lineNum)
+    })
+  return lineNums
+})
+
+// 根据小节号找到对应的行号
+const findMeasureLineNumber = (measureNumber) => {
+  const lines = abcCode.value.split('\n')
+  let measureCount = 0
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    // 跳过头部行（以字母: 开头）
+    if (/^[A-Za-z]:/.test(line.trim())) continue
+    // 跳过空行
+    if (!line.trim()) continue
+    
+    // 计算这一行有多少个小节线
+    const barMatches = line.match(/\|/g)
+    if (barMatches) {
+      const barCount = barMatches.length
+      // 检查该小节是否在这一行
+      if (measureCount + barCount >= measureNumber) {
+        return i + 1 // 行号从1开始
+      }
+      measureCount += barCount
+    }
+  }
+  return 0
+}
+
+// 处理来自 JianpuScore 的时值问题
+const handleMeasureIssues = (issues) => {
+  measureIssues.value = issues
+}
+
+// 同步滚动
+const syncScroll = () => {
+  if (lineNumbersRef.value && textareaRef.value) {
+    lineNumbersRef.value.scrollTop = textareaRef.value.scrollTop
+  }
+}
 
 // Default template if empty
 const DEFAULT_TEMPLATE = `X:1
@@ -332,9 +431,51 @@ onUnmounted(() => {
   position: sticky;
   top: 60px;
   height: calc(100vh - 60px);
-  overflow-y: auto;
+  overflow: hidden;
   background: #282c34;
   padding: 0;
+}
+
+.editor-wrapper {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.line-numbers {
+  width: 45px;
+  background: #21252b;
+  color: #636d83;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 16px 8px;
+  text-align: right;
+  overflow: hidden;
+  user-select: none;
+  border-right: 1px solid #181a1f;
+}
+
+.line-number {
+  height: 22.4px; /* 14px * 1.6 */
+}
+
+.line-number.error-line {
+  background: rgba(255, 77, 79, 0.3);
+  color: #ff4d4f;
+  font-weight: bold;
+}
+
+.line-number.overflow-line {
+  background: rgba(255, 77, 79, 0.25);
+  color: #ff6b6b;
+  font-weight: bold;
+}
+
+.line-number.underflow-line {
+  background: rgba(250, 173, 20, 0.25);
+  color: #ffc53d;
+  font-weight: bold;
 }
 
 .right-pane {
@@ -352,12 +493,14 @@ onUnmounted(() => {
   resize: none;
   border: none;
   padding: 16px;
+  padding-left: 12px;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 14px;
   line-height: 1.6;
   outline: none;
   background: #282c34;
   color: #abb2bf;
+  overflow-y: auto;
 }
 
 .error-bar {
@@ -366,6 +509,39 @@ onUnmounted(() => {
   padding: 8px 16px;
   font-size: 0.9rem;
   border-top: 1px solid #ffccc7;
+}
+
+.issue-bar {
+  background: #fffbe6;
+  color: #d48806;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  border-top: 1px solid #ffe58f;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.issue-title {
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.issue-item {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.issue-item.overflow {
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.issue-item.underflow {
+  background: rgba(250, 173, 20, 0.2);
+  color: #d48806;
 }
 
 .paper-container {
