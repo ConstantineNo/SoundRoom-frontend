@@ -45,7 +45,7 @@
             <rect 
               v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId))"
               class="highlight-bg"
-              :x="-5" :y="20" :width="note.width + 10" :height="60"
+              :x="-5" :y="20" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="60"
             />
             
             <!-- Accidental -->
@@ -96,6 +96,20 @@
               class="tie-line"
               :d="getTiePath(tie)"
             />
+          </template>
+          
+          <!-- Triplet brackets -->
+          <template v-for="(triplet, tpIdx) in measure.tripletGroups" :key="'triplet'+tpIdx">
+            <g class="triplet-bracket">
+              <!-- Left vertical line -->
+              <line :x1="triplet.startX" :y1="15" :x2="triplet.startX" :y2="20" class="triplet-line"/>
+              <!-- Horizontal line -->
+              <line :x1="triplet.startX" :y1="15" :x2="triplet.endX" :y2="15" class="triplet-line"/>
+              <!-- Right vertical line -->
+              <line :x1="triplet.endX" :y1="15" :x2="triplet.endX" :y2="20" class="triplet-line"/>
+              <!-- Number 3 in the middle -->
+              <text :x="(triplet.startX + triplet.endX) / 2" y="14" class="triplet-number">3</text>
+            </g>
           </template>
           
           <!-- Bar line at end of measure - different types -->
@@ -315,6 +329,79 @@ const splitRestIntoQuarters = (duration, elId, noteCount) => {
   return notes
 }
 
+// Calculate appropriate width for each note based on its properties
+const getNoteDisplayWidth = (note) => {
+  // Base width for the note digit
+  let width = NOTE_WIDTH
+  
+  // Add width for dashes (延音线)
+  if (note.dashes > 0) {
+    width += note.dashes * DASH_WIDTH
+  }
+  
+  // Add width for augmentation dot
+  if (note.augDot) {
+    width += 8
+  }
+  
+  return width
+}
+
+// Layout notes within a measure - calculates x positions
+const layoutMeasureNotes = (measure) => {
+  if (!measure.notes || measure.notes.length === 0) return
+  
+  const availableWidth = measureWidth - MEASURE_PADDING * 2
+  
+  // First pass: calculate total minimum width needed
+  let totalMinWidth = 0
+  measure.notes.forEach(note => {
+    note.displayWidth = getNoteDisplayWidth(note)
+    totalMinWidth += note.displayWidth
+  })
+  
+  // Calculate scale factor if we need to compress
+  const scaleFactor = totalMinWidth > availableWidth ? availableWidth / totalMinWidth : 1
+  
+  // Second pass: assign x positions
+  let currentX = 0
+  measure.notes.forEach((note, idx) => {
+    note.x = currentX
+    currentX += note.displayWidth * scaleFactor
+  })
+  
+  // Update tie start/end x positions
+  measure.ties.forEach(tie => {
+    const startNote = measure.notes[tie.startIdx]
+    const endNote = measure.notes[tie.endIdx]
+    if (startNote && endNote) {
+      tie.startX = startNote.x + NOTE_WIDTH / 2
+      tie.endX = endNote.x + NOTE_WIDTH / 2
+    }
+  })
+  
+  // Find triplet groups
+  measure.tripletGroups = []
+  let inTriplet = false
+  let tripletStart = -1
+  measure.notes.forEach((note, idx) => {
+    if (note.startTriplet && !inTriplet) {
+      inTriplet = true
+      tripletStart = idx
+    }
+    if (note.endTriplet && inTriplet) {
+      measure.tripletGroups.push({
+        startIdx: tripletStart,
+        endIdx: idx,
+        startX: measure.notes[tripletStart].x,
+        endX: note.x + NOTE_WIDTH
+      })
+      inTriplet = false
+      tripletStart = -1
+    }
+  })
+}
+
 // Computed displays
 const keyDisplay = computed(() => {
   const k = props.tune?.lines?.[0]?.staff?.[0]?.key
@@ -361,9 +448,8 @@ const computedRows = computed(() => {
   // Calculate expected duration for a measure (in abcjs units: 1 = whole note)
   const expectedMeasureDuration = meter.num / meter.den
   
-  // Track notes for tie detection
-  let prevNote = null
-  let prevNoteX = 0
+  // Track for tie detection - need to track across measures too
+  let prevNoteForTie = null
   
   // Accumulated beat position for grouping
   let beatPosition = 0
@@ -377,15 +463,16 @@ const computedRows = computed(() => {
           const elId = el._myId || null
           
           if (el.el_type === 'bar') {
-            if (currentMeasure.notes.length > 0 || allMeasures.length === 0) {
+            // Only push measure if it has notes (avoid empty first measure)
+            if (currentMeasure.notes.length > 0) {
               measureIndex++
               // Check duration status
               const diff = currentMeasure.totalDuration - expectedMeasureDuration
               if (diff > 0.01) {
-                currentMeasure.durationStatus = 'overflow' // 时值超限
+                currentMeasure.durationStatus = 'overflow'
                 currentMeasure.durationDiff = diff
               } else if (diff < -0.01) {
-                currentMeasure.durationStatus = 'underflow' // 时值不足
+                currentMeasure.durationStatus = 'underflow'
                 currentMeasure.durationDiff = diff
               } else {
                 currentMeasure.durationStatus = 'ok'
@@ -395,15 +482,18 @@ const computedRows = computed(() => {
               currentMeasure.expectedDuration = expectedMeasureDuration
               
               // Determine bar type from el.type
-              // Common types: bar_thin, bar_thin_thick, bar_thick_thin, bar_right_repeat, bar_left_repeat, bar_dbl_repeat
               currentMeasure.barType = el.type || 'bar_thin'
               
+              // Recalculate note positions based on actual content
+              layoutMeasureNotes(currentMeasure)
+              
               allMeasures.push(currentMeasure)
-              currentMeasure = { notes: [], ties: [], totalDuration: 0, barType: 'bar_thin' }
-              prevNote = null
-              prevNoteX = 0
-              beatPosition = 0
             }
+            // Start new measure - reset prevNoteForTie to null
+            // Cross-measure ties are complex and would need separate handling
+            currentMeasure = { notes: [], ties: [], totalDuration: 0, barType: 'bar_thin' }
+            beatPosition = 0
+            prevNoteForTie = null
           } else if (el.el_type === 'note') {
             noteCount++
             const duration = el.duration || 0.25
@@ -412,59 +502,64 @@ const computedRows = computed(() => {
               // Split long rests into multiple quarter note rests
               const restNotes = splitRestIntoQuarters(duration, elId, noteCount)
               restNotes.forEach(note => {
-                // Calculate beat group for this note
                 note.beatGroup = Math.floor(beatPosition / 0.25)
-                note.x = currentMeasure.notes.length * (measureWidth - MEASURE_PADDING) / 4
                 currentMeasure.notes.push(note)
                 beatPosition += note.duration
               })
               currentMeasure.totalDuration += duration
-              prevNote = null
+              prevNoteForTie = null
             } else if (el.pitches?.[0]) {
               const p = el.pitches[0]
               const jData = pitchToJianpu(p.pitch, keyRoot)
               const rhythm = getDurationInfo(duration, false)
-              const noteWidth = NOTE_WIDTH + rhythm.dashes * DASH_WIDTH
-              
-              const noteX = currentMeasure.notes.length * (measureWidth - MEASURE_PADDING) / 4
               
               // Check for triplet
-              const isTriplet = el.startTriplet || el.endTriplet || el.triplet
+              const isTriplet = el.startTriplet || el.endTriplet || (el.triplet !== undefined)
+              
+              // Check tie flags - try both pitch level and element level
+              const hasStartTie = !!(p.startTie || el.startTie)
+              const hasEndTie = !!(p.endTie || el.endTie)
               
               const noteObj = {
                 id: elId,
-                x: noteX,
+                x: 0, // Will be calculated later
                 number: jData.number,
                 isRest: false,
                 highDots: jData.octave > 0 ? jData.octave : 0,
                 lowDots: jData.octave < 0 ? Math.abs(jData.octave) : 0,
                 accidental: p.accidental ? (ACCIDENTAL_SYMBOLS[p.accidental] || null) : null,
                 ...rhythm,
-                width: noteWidth,
                 duration: duration,
                 pitch: p.pitch,
-                startTie: p.startTie,
-                endTie: p.endTie,
+                hasTieStart: hasStartTie,
+                hasTieEnd: hasEndTie,
                 beatGroup: Math.floor(beatPosition / 0.25),
                 isTriplet: isTriplet,
                 startTriplet: el.startTriplet,
                 endTriplet: el.endTriplet
               }
               
+              // Record current note index before adding
+              const noteIndex = currentMeasure.notes.length
+              
               currentMeasure.notes.push(noteObj)
               currentMeasure.totalDuration += duration
               beatPosition += duration
               
-              // Check for tie with previous note
-              if (prevNote && prevNote.startTie && p.endTie && prevNote.pitch === p.pitch) {
+              // Check for tie - if previous note has startTie and this note has same pitch
+              if (prevNoteForTie && prevNoteForTie.hasTieStart && 
+                  prevNoteForTie.pitch === noteObj.pitch) {
                 currentMeasure.ties.push({
-                  startX: prevNoteX,
-                  endX: noteX
+                  startIdx: prevNoteForTie.index,
+                  endIdx: noteIndex
                 })
               }
               
-              prevNote = { ...noteObj, startTie: p.startTie }
-              prevNoteX = noteX
+              // Store current note info for next iteration
+              prevNoteForTie = {
+                ...noteObj,
+                index: noteIndex
+              }
             }
           }
         })
@@ -488,6 +583,7 @@ const computedRows = computed(() => {
     }
     currentMeasure.measureNumber = measureIndex
     currentMeasure.expectedDuration = expectedMeasureDuration
+    layoutMeasureNotes(currentMeasure)
     allMeasures.push(currentMeasure)
   }
   
@@ -638,6 +734,19 @@ const svgHeight = computed(() => {
   fill: none;
   stroke: #222;
   stroke-width: 1.5;
+}
+
+/* Triplet bracket */
+.triplet-bracket .triplet-line {
+  stroke: #444;
+  stroke-width: 1;
+}
+
+.triplet-bracket .triplet-number {
+  font-size: 10px;
+  font-weight: bold;
+  fill: #444;
+  text-anchor: middle;
 }
 
 /* Duration warning backgrounds */
