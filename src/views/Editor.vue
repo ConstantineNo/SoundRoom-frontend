@@ -26,7 +26,6 @@
           placeholder="在此输入ABC代码..."
           spellcheck="false"
         ></textarea>
-        <!-- Error display could go here -->
         <div v-if="syntaxError" class="error-bar">
           {{ syntaxError }}
         </div>
@@ -72,7 +71,6 @@ const visualObj = ref(null)
 const activeNoteIds = ref([]) // IDs of notes currently playing
 
 let synthControl = null
-let createSynth = null
 
 // Default template if empty
 const DEFAULT_TEMPLATE = `X:1
@@ -87,6 +85,45 @@ const debounce = (fn, delay) => {
   return (...args) => {
     clearTimeout(timeoutId)
     timeoutId = setTimeout(() => fn.apply(this, args), delay)
+  }
+}
+
+// Cursor Control Object - passed to synthControl.load()
+const cursorControl = {
+  onStart() {
+    // Clear any existing highlights
+    const els = document.querySelectorAll('.highlight-note')
+    els.forEach(el => el.classList.remove('highlight-note'))
+    activeNoteIds.value = []
+  },
+  onEvent(ev) {
+    // Clear previous highlights
+    const els = document.querySelectorAll('.highlight-note')
+    els.forEach(el => el.classList.remove('highlight-note'))
+    
+    if (!ev) return; // End of tune
+    
+    // Highlight current elements
+    if (ev.elements) {
+      const newIds = [];
+      ev.elements.forEach(svgEl => {
+        // Staff mode: add class directly to SVG element
+        if (viewMode.value === 'staff') {
+          svgEl.classList.add('highlight-note');
+        }
+        // Jianpu mode: get the element ID from abcelem
+        // abcjs should attach abcelem to svg elements
+        if (svgEl.abcelem && svgEl.abcelem._myId) {
+          newIds.push(svgEl.abcelem._myId);
+        }
+      });
+      activeNoteIds.value = newIds;
+    }
+  },
+  onFinished() {
+    const els = document.querySelectorAll('.highlight-note')
+    els.forEach(el => el.classList.remove('highlight-note'))
+    activeNoteIds.value = []
   }
 }
 
@@ -135,63 +172,20 @@ const renderAbc = debounce(async () => {
         synthControl.disable(true)
       }
       
-      // B. 创建控制器 UI
+      // B. 创建控制器 UI (cursorControl 传递到这里!)
       synthControl = new abcjs.synth.SynthController()
-      synthControl.load("#audio", null, {
+      synthControl.load("#audio", cursorControl, {
         displayLoop: true,
         displayRestart: true,
         displayPlay: true,
         displayProgress: true,
-        displayWarp: true // 允许变速
+        displayWarp: true
       })
 
-      // C. 创建音频合成器
-      createSynth = new abcjs.synth.CreateSynth()
-      
       try {
-        // D. 初始化合成器 (生成 MIDI Buffer) - 使用 tune[0] 而不是 visualObj[0]
-        await createSynth.init({ visualObj: tune[0] })
-        
-        // Cursor Control Logic
-        const cursorControl = {
-          onStart() {
-            const els = document.querySelectorAll('.highlight-note')
-            els.forEach(el => el.classList.remove('highlight-note'))
-            activeNoteIds.value = []
-          },
-          onEvent(ev) {
-            // Remove highlight from previous notes (for staff mode)
-            const els = document.querySelectorAll('.highlight-note')
-            els.forEach(el => el.classList.remove('highlight-note'))
-            
-            // Highlight current elements
-            if (ev && ev.elements) {
-               const newIds = [];
-               ev.elements.forEach(svgEl => {
-                   if (viewMode.value === 'staff') {
-                       svgEl.classList.add('highlight-note');
-                   } else {
-                       // In Jianpu mode, try to get the abcelem
-                       const abstractEl = svgEl.abcelem;
-                       if (abstractEl && abstractEl._myId) {
-                           newIds.push(abstractEl._myId);
-                       }
-                   }
-               });
-               activeNoteIds.value = newIds;
-            }
-          },
-          onFinished() {
-            const els = document.querySelectorAll('.highlight-note')
-            els.forEach(el => el.classList.remove('highlight-note'))
-            activeNoteIds.value = []
-          }
-        }
-
-        // E. 将合成器连接到控制器
+        // C. 设置曲目
         await synthControl.setTune(tune[0], true, {
-          chordsOff: true, // 竹笛单旋律，建议关闭和弦伴奏
-          cursorControl: cursorControl
+          chordsOff: true
         })
         
         console.log("音频初始化完成")
@@ -393,7 +387,7 @@ onUnmounted(() => {
   background: #282c34;
 }
 
-/* Note Highlighting */
+/* Note Highlighting for Staff View */
 :deep(.highlight-note) {
   fill: #d03050 !important;
   stroke: #d03050 !important;
