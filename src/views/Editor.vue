@@ -59,6 +59,7 @@ const saving = ref(false)
 const syntaxError = ref('')
 
 let synthControl = null
+let createSynth = null
 
 // Default template if empty
 const DEFAULT_TEMPLATE = `X:1
@@ -76,49 +77,63 @@ const debounce = (fn, delay) => {
   }
 }
 
-const renderAbc = debounce(() => {
+const renderAbc = debounce(async () => {
   syntaxError.value = ''
+  const audioContainer = document.querySelector("#audio")
+  
   try {
+    // 1. 渲染乐谱
     const visualObj = abcjs.renderAbc("paper", abcCode.value, {
       responsive: "resize",
-      add_classes: true
+      add_classes: true,
+      staffwidth: 800 // 建议固定宽度以保证排版稳定
     })
-    
-    // Setup audio synth
-    if (abcjs.synth.supportsAudio() && visualObj && visualObj[0]) {
-      // Check if there is any music to play
-      // Ensure duration is positive and significant enough to generate frames
-      if (visualObj[0].getTotalTime() < 0.01) {
-        return
-      }
 
-      if (!synthControl) {
-        synthControl = new abcjs.synth.SynthController();
-        synthControl.load("#audio", null, {
-          displayLoop: true,
-          displayRestart: true,
-          displayPlay: true,
-          displayProgress: true,
-          displayWarp: false // Disable warp to avoid potential issues
-        });
-      } else {
-        // Important: Disable before updating to prevent race conditions
-        synthControl.disable(true);
+    // 2. 检查是否生成了有效的乐谱对象
+    if (!visualObj || !visualObj[0]) {
+      console.warn("渲染未能生成有效的 Tune 对象")
+      return
+    }
+
+    // 3. 初始化音频 (标准流程)
+    if (abcjs.synth.supportsAudio()) {
+      
+      // A. 清理旧实例 (防止播放器重复堆叠)
+      if (synthControl) {
+        synthControl.disable(true)
       }
       
-      const createSynth = new abcjs.synth.CreateSynth();
-      createSynth.init({ visualObj: visualObj[0] })
-        .then(() => {
-            if (synthControl) {
-              synthControl.setTune(visualObj[0], false, {
-                  chordsOff: true
-              }).catch(error => {
-                console.warn("Audio setTune warning:", error)
-              })
-            }
-        }).catch(error => {
-           console.warn("Synth init warning:", error)
+      // B. 创建控制器 UI
+      synthControl = new abcjs.synth.SynthController()
+      synthControl.load("#audio", null, {
+        displayLoop: true,
+        displayRestart: true,
+        displayPlay: true,
+        displayProgress: true,
+        displayWarp: true // 允许变速
+      })
+
+      // C. 创建音频合成器 (这是您原代码缺失的核心步骤)
+      createSynth = new abcjs.synth.CreateSynth()
+      
+      try {
+        // D. 初始化合成器 (生成 MIDI Buffer)
+        await createSynth.init({ visualObj: visualObj[0] })
+        
+        // E. 将合成器连接到控制器
+        // millisecondsPerMeasure: 用于控制初始速度，可选
+        await synthControl.setTune(visualObj[0], true, {
+          chordsOff: true // 竹笛单旋律，建议关闭和弦伴奏
         })
+        
+        console.log("音频初始化完成")
+        
+      } catch (audioErr) {
+        console.error("音频生成失败:", audioErr)
+        if (audioContainer) {
+          audioContainer.innerHTML = `<div class="error-msg">音频生成失败: ${audioErr.message}</div>`
+        }
+      }
     }
   } catch (err) {
     console.error(err)
@@ -278,6 +293,16 @@ onUnmounted(() => {
   background: #f9f9f9;
   border-radius: 8px;
   margin-bottom: 10px;
+  min-height: 50px; /* 预留高度，防止加载时闪烁 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.error-msg {
+  color: #d03050;
+  font-size: 12px;
+  padding: 10px;
 }
 
 /* Custom Scrollbar for Webkit */
