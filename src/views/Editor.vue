@@ -173,8 +173,12 @@ const handleSeekToNote = (data) => {
   if (!synthControl) return
   // data 包含 { noteId, timePercent, absoluteTime }
   // synthControl.seek 使用的是百分比 (0-1)
-  if (data.timePercent !== undefined) {
-    synthControl.seek(data.timePercent)
+  // 由于 JianpuScore 计算的百分比是基于 duration 而非实际播放时间
+  // 这里直接使用传入的百分比，因为两者应该是成正比的
+  if (data.timePercent !== undefined && data.timePercent >= 0 && data.timePercent <= 1) {
+    // 微调：稍微回退一点以确保从音符开始处播放
+    const adjustedPercent = Math.max(0, data.timePercent - 0.001)
+    synthControl.seek(adjustedPercent)
   }
 }
 

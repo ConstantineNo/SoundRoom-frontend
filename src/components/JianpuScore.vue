@@ -68,10 +68,10 @@
             <!-- Augmentation dot -->
             <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="45" r="2.5"/>
             
-            <!-- Dashes (延音线) - 垂直居中于数字高度，宽度与数字一致，加粗 -->
+            <!-- Dashes (延音线) - 与数字底部对齐，短横线紧跟数字 -->
             <template v-if="note.dashes > 0 && !note.isRest && !note.isGrace">
               <line v-for="d in note.dashes" :key="'d'+d" class="dash"
-                :x1="NOTE_WIDTH + (d-1)*DASH_WIDTH + 5" :y1="44" :x2="NOTE_WIDTH + (d-1)*DASH_WIDTH + DASH_WIDTH - 5" :y2="44" />
+                :x1="NOTE_WIDTH - 2 + (d-1)*DASH_WIDTH" :y1="48" :x2="NOTE_WIDTH - 2 + d*DASH_WIDTH - 8" :y2="48" />
             </template>
 
             <!-- Lyric -->
@@ -94,6 +94,7 @@
           </template>
           
           <!-- Bar Lines -->
+          <!-- 小节开始的左重复符号 (|:) -->
           <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(-5, 0)">
             <rect class="bar-thick" x="0" y="20" width="4" height="45"/>
             <line class="bar-line" x1="7" y1="20" x2="7" y2="65"/>
@@ -101,22 +102,21 @@
             <circle class="repeat-dot" cx="14" cy="50" r="2.5"/>
           </g>
           
+          <!-- 小节结束的竖线 -->
           <g class="bar-lines" :transform="`translate(${measureWidth + 5}, 0)`">
+            <!-- 普通细线 -->
             <line v-if="measure.barType === 'bar_thin'" class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
+            <!-- 双细线 -->
             <template v-if="measure.barType === 'bar_dbl_thin'">
               <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
               <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
             </template>
+            <!-- 终止线 (细线+粗线) -->
             <template v-if="measure.barType === 'bar_thin_thick'">
               <line class="bar-line" x1="-8" y1="20" x2="-8" y2="65"/>
               <rect class="bar-thick" x="-4" y="20" width="4" height="45"/>
             </template>
-            <template v-if="measure.barType === 'bar_left_repeat'">
-              <rect class="bar-thick" x="-8" y="20" width="4" height="45"/>
-              <line class="bar-line" x1="-2" y1="20" x2="-2" y2="65"/>
-              <circle class="repeat-dot" cx="5" cy="35" r="2.5"/>
-              <circle class="repeat-dot" cx="5" cy="50" r="2.5"/>
-            </template>
+            <!-- 右重复符号 (:|) - 两点+细线+粗线 -->
             <template v-if="measure.barType === 'bar_right_repeat'">
               <circle class="repeat-dot" cx="-18" cy="35" r="2.5"/>
               <circle class="repeat-dot" cx="-18" cy="50" r="2.5"/>
@@ -233,10 +233,10 @@ const getDurationInfo = (duration, isRest = false) => {
     underlines = 1 
     augDot = true 
   }
-  // 附点二分音符 (3拍) = 附点 + 2条延音线
+  // 3拍音符 = 2条延音线，无附点（1+1+1=3）
   else if (Math.abs(ratio - 3) < 0.05) { 
     dashes = 2 
-    augDot = true 
+    augDot = false  // 3拍不需要附点
   }
   // 附点十六分音符 (0.375拍)
   else if (Math.abs(ratio - 0.375) < 0.05) { 
@@ -459,14 +459,15 @@ const meterDisplay = computed(() => {
 // y=20 (Above numbers, numbers are at y=50)
 const getTiePath = (tie) => {
   if (!tie.startX || !tie.endX) return ''
-  const x1 = tie.startX + 20 // Center of note (NOTE_WIDTH 40 / 2)
-  const x2 = tie.endX + 20
-  const y = 15 // Above the notes
+  // startX 和 endX 已经是音符中心位置 (note.x + NOTE_WIDTH/2)
+  const x1 = tie.startX
+  const x2 = tie.endX
+  const y = 22 // 音符上方
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
   // Height scales with distance, but capped
-  const h = Math.min(15, Math.max(8, distance * 0.15)) 
-  const thickness = 1.5 + Math.min(3, distance * 0.05) // Thicker in middle for long ties
+  const h = Math.min(12, Math.max(6, distance * 0.12)) 
+  const thickness = 1.5 + Math.min(2.5, distance * 0.04) // Thicker in middle for long ties
   
   // Top curve (going up) and Bottom curve (coming back, less high)
   // M start Q control end Q control start Z
@@ -476,13 +477,14 @@ const getTiePath = (tie) => {
 // Calculate slur path (also above)
 const getSlurPath = (slur) => {
   if (!slur.startX || !slur.endX) return ''
-  const x1 = slur.startX + 20
-  const x2 = slur.endX + 20
-  const y = 10 // Slightly higher than ties
+  // startX 和 endX 已经是音符中心位置 (note.x + NOTE_WIDTH/2)
+  const x1 = slur.startX
+  const x2 = slur.endX
+  const y = 18 // 比 tie 稍高一点
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const h = Math.min(20, Math.max(10, distance * 0.2))
-  const thickness = 2 + Math.min(4, distance * 0.05)
+  const h = Math.min(15, Math.max(8, distance * 0.15))
+  const thickness = 1.5 + Math.min(3, distance * 0.04)
   
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
@@ -539,10 +541,10 @@ const computedRows = computed(() => {
     measure.beams = []
     if (!measure.notes.length) return
 
-    // 按 beatGroup 分组
+    // 按 beatGroup 分组，跳过倚音和休止符
     const groups = {}
     measure.notes.forEach((note, idx) => {
-      if (note.isGrace) return
+      if (note.isGrace || note.isRest) return  // 跳过倚音和休止符
       note._measureIdx = idx
       const beatIdx = Math.floor(note.relativeStartTime / 0.25)
       if (!groups[beatIdx]) groups[beatIdx] = []
@@ -714,7 +716,8 @@ const computedRows = computed(() => {
           } else if (el.el_type === 'note') {
             noteCount++
             const duration = el.duration || 0.25
-            const lyric = el.lyric ? el.lyric.map(l => l.content).join('') : null
+            // abcjs 歌词可能在 syllable 或 content 字段
+            const lyric = el.lyric ? el.lyric.map(l => l.syllable || l.content || '').join('') : null
             
             // Grace notes
             if (el.gracenotes && el.gracenotes.length > 0) {
