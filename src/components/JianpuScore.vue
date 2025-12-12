@@ -19,19 +19,19 @@
           <rect 
             v-if="measure.durationStatus === 'overflow'"
             class="duration-warning-bg overflow"
-            :x="0" :y="15" :width="measureWidth" :height="70"
+            :x="0" :y="10" :width="measureWidth" :height="60"
           />
           <rect 
             v-if="measure.durationStatus === 'underflow'"
             class="duration-warning-bg underflow"
-            :x="0" :y="15" :width="measureWidth" :height="70"
+            :x="0" :y="10" :width="measureWidth" :height="60"
           />
           
           <!-- Duration status indicator -->
           <g v-if="measure.durationStatus !== 'ok'" class="duration-indicator">
             <text 
               :x="measureWidth - 5" 
-              y="18" 
+              y="8" 
               class="duration-label"
               :class="measure.durationStatus"
             >
@@ -41,53 +41,53 @@
           
           <!-- Notes in this measure -->
           <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
-             :transform="`translate(${note.x}, 0)` + (note.isGrace ? ' scale(0.7)' : '')"
+             :transform="`translate(${note.x}, 0)` + (note.isGrace ? ' scale(0.65)' : '')"
              :class="{ 'grace-note-group': note.isGrace }">
             <!-- Highlight rect (check both id and originalId for split rests) -->
             <rect 
               v-if="!note.isGrace && (activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)))"
               class="highlight-bg"
-              :x="-5" :y="20" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="60"
+              :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55"
             />
             
             <!-- Accidental -->
-            <text v-if="note.accidental" class="accidental" :x="-2" y="55">{{ note.accidental }}</text>
+            <text v-if="note.accidental" class="accidental" :x="0" y="48">{{ note.accidental }}</text>
             
             <!-- High octave dots -->
             <template v-if="note.highDots > 0">
               <circle v-for="d in note.highDots" :key="'h'+d" 
                 class="octave-dot" 
-                :cx="12" :cy="25 - (d-1)*8" r="2.5"
+                :cx="15" :cy="22 - (d-1)*10" r="3"
               />
             </template>
             
             <!-- Main number -->
-            <text class="note-number" :class="{ 'is-rest': note.isRest, 'is-grace': note.isGrace }" x="10" y="58">{{ note.number }}</text>
+            <text class="note-number" :class="{ 'is-rest': note.isRest, 'is-grace': note.isGrace }" x="15" y="50">{{ note.number }}</text>
             
             <!-- Low octave dots -->
             <template v-if="note.lowDots > 0">
               <circle v-for="d in note.lowDots" :key="'l'+d" 
                 class="octave-dot" 
-                :cx="12" :cy="75 + (d-1)*8 + note.underlines * 6" r="2.5"
+                :cx="15" :cy="68 + (d-1)*10 + note.underlines * 5" r="3"
               />
             </template>
             
-            <!-- Underlines -->
+            <!-- Underlines for short notes -->
             <template v-if="note.underlines > 0">
               <line v-for="u in note.underlines" :key="'u'+u"
                 class="underline"
-                :x1="2" :y1="68 + (u-1)*6" :x2="22" :y2="68 + (u-1)*6"
+                :x1="3" :y1="60 + (u-1)*5" :x2="27" :y2="60 + (u-1)*5"
               />
             </template>
             
             <!-- Augmentation dot (only for non-rest, non-grace notes) -->
-            <circle v-if="note.augDot && !note.isRest && !note.isGrace" class="aug-dot" :cx="28" :cy="55" r="2"/>
+            <circle v-if="note.augDot && !note.isRest && !note.isGrace" class="aug-dot" :cx="32" :cy="45" r="3"/>
             
-            <!-- Dashes for long notes (only for non-rest notes) -->
+            <!-- Dashes for long notes (延音线) -->
             <template v-if="note.dashes > 0 && !note.isRest && !note.isGrace">
               <line v-for="d in note.dashes" :key="'d'+d"
                 class="dash"
-                :x1="30 + (d-1)*20" :y1="50" :x2="45 + (d-1)*20" :y2="50"
+                :x1="32 + (d-1)*25" :y1="45" :x2="52 + (d-1)*25" :y2="45"
               />
             </template>
           </g>
@@ -108,70 +108,70 @@
             />
           </template>
           
-          <!-- Triplet brackets -->
+          <!-- Triplet brackets (三连音) -->
           <template v-for="(triplet, tpIdx) in measure.tripletGroups" :key="'triplet'+tpIdx">
             <g class="triplet-bracket">
               <!-- Left vertical line -->
-              <line :x1="triplet.startX" :y1="15" :x2="triplet.startX" :y2="20" class="triplet-line"/>
+              <line :x1="triplet.startX + 5" :y1="12" :x2="triplet.startX + 5" :y2="18" class="triplet-line"/>
               <!-- Horizontal line -->
-              <line :x1="triplet.startX" :y1="15" :x2="triplet.endX" :y2="15" class="triplet-line"/>
+              <line :x1="triplet.startX + 5" :y1="12" :x2="triplet.endX + 25" :y2="12" class="triplet-line"/>
               <!-- Right vertical line -->
-              <line :x1="triplet.endX" :y1="15" :x2="triplet.endX" :y2="20" class="triplet-line"/>
+              <line :x1="triplet.endX + 25" :y1="12" :x2="triplet.endX + 25" :y2="18" class="triplet-line"/>
               <!-- Number 3 in the middle -->
-              <text :x="(triplet.startX + triplet.endX) / 2" y="14" class="triplet-number">3</text>
+              <text :x="(triplet.startX + triplet.endX + 30) / 2" y="10" class="triplet-number">3</text>
             </g>
           </template>
           
           <!-- Left bar line at start of measure (for left repeat) -->
           <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(2, 0)">
-            <rect class="bar-thick" x="-2" y="25" width="4" height="50"/>
-            <line class="bar-line" x1="4" y1="25" x2="4" y2="75"/>
-            <circle class="repeat-dot" cx="10" cy="42" r="2.5"/>
-            <circle class="repeat-dot" cx="10" cy="58" r="2.5"/>
+            <rect class="bar-thick" x="-2" y="20" width="3" height="45"/>
+            <line class="bar-line" x1="4" y1="20" x2="4" y2="65"/>
+            <circle class="repeat-dot" cx="10" cy="35" r="3"/>
+            <circle class="repeat-dot" cx="10" cy="50" r="3"/>
           </g>
           
           <!-- Bar line at end of measure - different types -->
           <g class="bar-lines" :transform="`translate(${measureWidth - 2}, 0)`">
             <!-- Normal thin bar -->
-            <line v-if="measure.barType === 'bar_thin'" class="bar-line" x1="0" y1="25" x2="0" y2="75"/>
+            <line v-if="measure.barType === 'bar_thin'" class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
             
             <!-- Double bar (thin-thin) -->
             <template v-if="measure.barType === 'bar_dbl_thin'">
-              <line class="bar-line" x1="-4" y1="25" x2="-4" y2="75"/>
-              <line class="bar-line" x1="0" y1="25" x2="0" y2="75"/>
+              <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
+              <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
             </template>
             
             <!-- Final bar (thin-thick) -->
             <template v-if="measure.barType === 'bar_thin_thick'">
-              <line class="bar-line" x1="-6" y1="25" x2="-6" y2="75"/>
-              <rect class="bar-thick" x="-2" y="25" width="4" height="50"/>
+              <line class="bar-line" x1="-6" y1="20" x2="-6" y2="65"/>
+              <rect class="bar-thick" x="-2" y="20" width="3" height="45"/>
             </template>
             
             <!-- Left repeat |: -->
             <template v-if="measure.barType === 'bar_left_repeat'">
-              <rect class="bar-thick" x="-6" y="25" width="4" height="50"/>
-              <line class="bar-line" x1="0" y1="25" x2="0" y2="75"/>
-              <circle class="repeat-dot" cx="6" cy="42" r="2.5"/>
-              <circle class="repeat-dot" cx="6" cy="58" r="2.5"/>
+              <rect class="bar-thick" x="-6" y="20" width="3" height="45"/>
+              <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
+              <circle class="repeat-dot" cx="6" cy="35" r="3"/>
+              <circle class="repeat-dot" cx="6" cy="50" r="3"/>
             </template>
             
             <!-- Right repeat :| -->
             <template v-if="measure.barType === 'bar_right_repeat'">
-              <circle class="repeat-dot" cx="-12" cy="42" r="2.5"/>
-              <circle class="repeat-dot" cx="-12" cy="58" r="2.5"/>
-              <line class="bar-line" x1="-6" y1="25" x2="-6" y2="75"/>
-              <rect class="bar-thick" x="-2" y="25" width="4" height="50"/>
+              <circle class="repeat-dot" cx="-12" cy="35" r="3"/>
+              <circle class="repeat-dot" cx="-12" cy="50" r="3"/>
+              <line class="bar-line" x1="-6" y1="20" x2="-6" y2="65"/>
+              <rect class="bar-thick" x="-2" y="20" width="3" height="45"/>
             </template>
             
             <!-- Double repeat :|: -->
             <template v-if="measure.barType === 'bar_dbl_repeat'">
-              <circle class="repeat-dot" cx="-16" cy="42" r="2.5"/>
-              <circle class="repeat-dot" cx="-16" cy="58" r="2.5"/>
-              <line class="bar-line" x1="-10" y1="25" x2="-10" y2="75"/>
-              <rect class="bar-thick" x="-6" y="25" width="4" height="50"/>
-              <line class="bar-line" x1="2" y1="25" x2="2" y2="75"/>
-              <circle class="repeat-dot" cx="8" cy="42" r="2.5"/>
-              <circle class="repeat-dot" cx="8" cy="58" r="2.5"/>
+              <circle class="repeat-dot" cx="-16" cy="35" r="3"/>
+              <circle class="repeat-dot" cx="-16" cy="50" r="3"/>
+              <line class="bar-line" x1="-10" y1="20" x2="-10" y2="65"/>
+              <rect class="bar-thick" x="-6" y="20" width="3" height="45"/>
+              <line class="bar-line" x1="2" y1="20" x2="2" y2="65"/>
+              <circle class="repeat-dot" cx="8" cy="35" r="3"/>
+              <circle class="repeat-dot" cx="8" cy="50" r="3"/>
             </template>
           </g>
         </g>
@@ -205,12 +205,12 @@ const emit = defineEmits(['measure-issues'])
 const activeIds = computed(() => new Set(props.activeNoteIds))
 
 // Layout constants
-const NOTE_WIDTH = 30
-const DASH_WIDTH = 20
-const MEASURE_PADDING = 20
+const NOTE_WIDTH = 40  // 增大音符宽度
+const DASH_WIDTH = 25  // 增大延音线间距
+const MEASURE_PADDING = 15
 const MEASURES_PER_ROW = 4
-const rowHeight = 120
-const measureWidth = 200 // Fixed measure width for uniform appearance
+const rowHeight = 100  // 调整行高
+const measureWidth = 220 // 增大小节宽度
 
 // Pitch mapping (diatonic)
 const KEY_ROOT_PITCH = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 }
@@ -455,27 +455,27 @@ const meterDisplay = computed(() => {
   return null
 })
 
-// Calculate tie path (arc above notes, for same pitch)
+// Calculate tie path (arc above notes, for same pitch) - 连音线在音符下方
 const getTiePath = (tie) => {
   if (!tie.startX || !tie.endX) return ''
-  const x1 = tie.startX
-  const x2 = tie.endX
-  const y = 30 // Above the notes
+  const x1 = tie.startX + 15
+  const x2 = tie.endX + 15
+  const y = 65 // Below the notes
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const height = Math.min(15, distance * 0.3) // Arc height scales with distance
-  return `M ${x1} ${y} Q ${midX} ${y - height} ${x2} ${y}`
+  const height = Math.min(12, Math.max(8, distance * 0.2)) // Arc height scales with distance
+  return `M ${x1} ${y} Q ${midX} ${y + height} ${x2} ${y}`
 }
 
-// Calculate slur path (curved line below notes, for different pitches)
+// Calculate slur path (curved line below notes, for different pitches) - 圆滑线也在下方
 const getSlurPath = (slur) => {
   if (!slur.startX || !slur.endX) return ''
-  const x1 = slur.startX
-  const x2 = slur.endX
-  const y = 85 // Below the notes
+  const x1 = slur.startX + 15
+  const x2 = slur.endX + 15
+  const y = 70 // Below the notes
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const height = Math.min(12, distance * 0.25)
+  const height = Math.min(15, Math.max(10, distance * 0.25))
   return `M ${x1} ${y} Q ${midX} ${y + height} ${x2} ${y}`
 }
 
@@ -806,28 +806,29 @@ const svgHeight = computed(() => {
 
 <style scoped>
 .jianpu-score {
-  font-family: 'SimSun', 'Songti SC', serif;
+  font-family: 'SimSun', 'Songti SC', 'STSong', serif;
   background: #fff;
-  padding: 24px;
+  padding: 30px;
 }
 
 .header-info {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 30px;
 }
 
 .title {
-  font-size: 28px;
+  font-size: 32px;
   font-weight: bold;
-  color: #222;
-  margin-bottom: 8px;
+  color: #000;
+  margin-bottom: 12px;
+  letter-spacing: 4px;
 }
 
 .meta-row {
-  font-size: 14px;
-  color: #555;
+  font-size: 16px;
+  color: #333;
   display: flex;
-  gap: 24px;
+  gap: 40px;
   justify-content: center;
 }
 
@@ -838,50 +839,54 @@ const svgHeight = computed(() => {
 
 /* SVG Styles */
 .note-number {
-  font-size: 22px;
-  font-family: 'Times New Roman', serif;
-  fill: #222;
+  font-size: 28px;
+  font-family: 'Times New Roman', 'SimSun', serif;
+  font-weight: 500;
+  fill: #000;
   text-anchor: middle;
 }
 
 .note-number.is-rest {
-  fill: #666;
+  fill: #333;
 }
 
 .accidental {
-  font-size: 14px;
-  fill: #222;
+  font-size: 16px;
+  fill: #000;
+  font-weight: bold;
 }
 
 .octave-dot {
-  fill: #222;
+  fill: #000;
 }
 
 .underline {
-  stroke: #222;
-  stroke-width: 1.5;
+  stroke: #000;
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 
 .aug-dot {
-  fill: #222;
+  fill: #000;
 }
 
 .dash {
-  stroke: #222;
-  stroke-width: 2;
+  stroke: #000;
+  stroke-width: 2.5;
+  stroke-linecap: round;
 }
 
 .bar-line {
-  stroke: #666;
-  stroke-width: 1;
+  stroke: #000;
+  stroke-width: 1.5;
 }
 
 .bar-thick {
-  fill: #444;
+  fill: #000;
 }
 
 .repeat-dot {
-  fill: #444;
+  fill: #000;
 }
 
 .highlight-bg {
@@ -889,36 +894,36 @@ const svgHeight = computed(() => {
   rx: 4;
 }
 
-/* Tie line (same pitch - above notes) */
+/* Tie line (连音线 - 音符下方弧线) */
 .tie-line {
   fill: none;
-  stroke: #222;
+  stroke: #000;
   stroke-width: 1.5;
 }
 
-/* Slur line (different pitches - below notes) */
+/* Slur line (圆滑线 - 音符下方弧线) */
 .slur-line {
   fill: none;
-  stroke: #666;
+  stroke: #000;
   stroke-width: 1.5;
-  stroke-dasharray: none;
 }
 
-/* Grace notes */
+/* Grace notes (倚音) */
 .grace-note-group .note-number {
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: normal;
 }
 
 .grace-note-group .octave-dot {
-  r: 1.5;
+  r: 2;
 }
 
 .grace-note-group .underline {
-  stroke-width: 1;
+  stroke-width: 1.5;
 }
 
 .note-number.is-grace {
-  fill: #555;
+  fill: #333;
 }
 
 /* Triplet bracket */
