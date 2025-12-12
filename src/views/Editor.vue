@@ -107,12 +107,14 @@ const cursorControl = {
     if (ev.elements) {
       const newIds = [];
       ev.elements.forEach(svgEl => {
+        // Check if svgEl is a valid DOM element
+        if (!svgEl || typeof svgEl.classList === 'undefined') return;
+        
         // Staff mode: add class directly to SVG element
         if (viewMode.value === 'staff') {
           svgEl.classList.add('highlight-note');
         }
         // Jianpu mode: get the element ID from abcelem
-        // abcjs should attach abcelem to svg elements
         if (svgEl.abcelem && svgEl.abcelem._myId) {
           newIds.push(svgEl.abcelem._myId);
         }
