@@ -39,6 +39,7 @@
           v-if="viewMode === 'jianpu' && visualObj" 
           :tune="visualObj" 
           :active-note-ids="activeNoteIds"
+          :debug-mode="true"
         />
       </div>
     </div>
@@ -103,23 +104,34 @@ const cursorControl = {
     
     if (!ev) return; // End of tune
     
+    // DEBUG: Log event
+    console.log('[onEvent]', ev);
+    
     // Highlight current elements
     if (ev.elements) {
       const newIds = [];
       ev.elements.forEach(svgEl => {
         // Check if svgEl is a valid DOM element
-        if (!svgEl || typeof svgEl.classList === 'undefined') return;
+        if (!svgEl || typeof svgEl.classList === 'undefined') {
+          console.log('[onEvent] Invalid element:', svgEl);
+          return;
+        }
         
         // Staff mode: add class directly to SVG element
         if (viewMode.value === 'staff') {
           svgEl.classList.add('highlight-note');
+          console.log('[onEvent] Highlighted staff element:', svgEl);
         }
         // Jianpu mode: get the element ID from abcelem
         if (svgEl.abcelem && svgEl.abcelem._myId) {
           newIds.push(svgEl.abcelem._myId);
+          console.log('[onEvent] Found Jianpu ID:', svgEl.abcelem._myId);
+        } else {
+          console.log('[onEvent] No abcelem._myId on:', svgEl, 'abcelem:', svgEl.abcelem);
         }
       });
       activeNoteIds.value = newIds;
+      console.log('[onEvent] activeNoteIds:', newIds);
     }
   },
   onFinished() {

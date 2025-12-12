@@ -9,91 +9,123 @@
       </div>
     </div>
 
-    <!-- Music Lines (3 measures per line) -->
-    <div class="music-body">
-      <div v-for="(row, rowIdx) in displayRows" :key="rowIdx" class="music-row">
-        <div v-for="(measure, mIdx) in row" :key="mIdx" class="measure">
-          <template v-for="(el, elIdx) in measure.elements" :key="elIdx">
-            <!-- Note -->
-            <span 
-              v-if="el.type === 'note'" 
-              class="note"
-              :class="{ 'highlight': activeIds.has(el.id) }"
-            >
-              <span v-if="el.accidental" class="acc">{{ el.accidental }}</span>
-              <span class="note-inner">
-                <span v-if="el.highDots" class="dot-high">{{ '·'.repeat(el.highDots) }}</span>
-                <span class="num">{{ el.number }}</span>
-                <span v-if="el.lowDots" class="dot-low">{{ '·'.repeat(el.lowDots) }}</span>
-                <span v-if="el.underlineCount" class="underlines">
-                  <span v-for="n in el.underlineCount" :key="n" class="uline"></span>
-                </span>
-              </span>
-              <span v-if="el.dots" class="aug">·</span>
-              <span v-for="d in el.dashes" :key="d" class="dash">-</span>
-            </span>
-
-            <!-- Rest -->
-            <span 
-              v-else-if="el.type === 'rest'" 
-              class="note rest"
-              :class="{ 'highlight': activeIds.has(el.id) }"
-            >
-              <span class="note-inner">
-                <span class="num">0</span>
-                <span v-if="el.underlineCount" class="underlines">
-                  <span v-for="n in el.underlineCount" :key="n" class="uline"></span>
-                </span>
-              </span>
-              <span v-for="d in el.dashes" :key="d" class="dash">-</span>
-            </span>
-          </template>
-          <!-- Bar line at the end of each measure -->
-          <span class="bar">|</span>
-        </div>
-      </div>
+    <!-- SVG Music Body -->
+    <svg :width="svgWidth" :height="svgHeight" class="music-svg">
+      <!-- Rows -->
+      <g v-for="(row, rowIdx) in computedRows" :key="rowIdx" :transform="`translate(0, ${rowIdx * rowHeight})`">
+        <!-- Measures in this row -->
+        <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
+          <!-- Notes in this measure -->
+          <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.x}, 0)`">
+            <!-- Highlight rect -->
+            <rect 
+              v-if="activeIds.has(note.id)"
+              class="highlight-bg"
+              :x="-5" :y="20" :width="note.width + 10" :height="60"
+            />
+            
+            <!-- Accidental -->
+            <text v-if="note.accidental" class="accidental" :x="-2" y="55">{{ note.accidental }}</text>
+            
+            <!-- High octave dots -->
+            <template v-if="note.highDots > 0">
+              <circle v-for="d in note.highDots" :key="'h'+d" 
+                class="octave-dot" 
+                :cx="12" :cy="25 - (d-1)*8" r="2.5"
+              />
+            </template>
+            
+            <!-- Main number -->
+            <text class="note-number" :class="{ 'is-rest': note.isRest }" x="10" y="58">{{ note.number }}</text>
+            
+            <!-- Low octave dots -->
+            <template v-if="note.lowDots > 0">
+              <circle v-for="d in note.lowDots" :key="'l'+d" 
+                class="octave-dot" 
+                :cx="12" :cy="75 + (d-1)*8 + note.underlines * 6" r="2.5"
+              />
+            </template>
+            
+            <!-- Underlines -->
+            <template v-if="note.underlines > 0">
+              <line v-for="u in note.underlines" :key="'u'+u"
+                class="underline"
+                :x1="2" :y1="68 + (u-1)*6" :x2="22" :y2="68 + (u-1)*6"
+              />
+            </template>
+            
+            <!-- Augmentation dot -->
+            <circle v-if="note.augDot" class="aug-dot" :cx="28" :cy="55" r="2"/>
+            
+            <!-- Dashes for long notes -->
+            <template v-if="note.dashes > 0">
+              <line v-for="d in note.dashes" :key="'d'+d"
+                class="dash"
+                :x1="30 + (d-1)*20" :y1="50" :x2="45 + (d-1)*20" :y2="50"
+              />
+            </template>
+          </g>
+          
+          <!-- Bar line at end of measure -->
+          <line class="bar-line" :x1="measure.width" y1="25" :x2="measure.width" y2="75"/>
+        </g>
+      </g>
+    </svg>
+    
+    <!-- Debug Panel -->
+    <div v-if="debugMode" class="debug-panel">
+      <div><strong>Debug Info:</strong></div>
+      <div>Active Note IDs: {{ activeNoteIds.join(', ') || 'None' }}</div>
+      <div>Total Notes Parsed: {{ totalNotes }}</div>
+      <div>Measures: {{ totalMeasures }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   tune: { type: Object, default: null },
-  activeNoteIds: { type: Array, default: () => [] }
+  activeNoteIds: { type: Array, default: () => [] },
+  debugMode: { type: Boolean, default: false }
 })
 
 const activeIds = computed(() => new Set(props.activeNoteIds))
 
-// Constants
-const MEASURES_PER_ROW = 3
-const KEY_ROOT_PITCH = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 }
-const ACCIDENTAL_SYMBOLS = { 'sharp': '#', 'flat': '♭', 'natural': '♮', 'dblsharp': '×', 'dblflat': '♭♭' }
+// Layout constants
+const NOTE_WIDTH = 30
+const DASH_WIDTH = 20
+const MEASURE_PADDING = 20
+const MEASURES_PER_ROW = 4
+const rowHeight = 120
 
-// Convert diatonic pitch to Jianpu
+// Pitch mapping (diatonic)
+const KEY_ROOT_PITCH = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 }
+const ACCIDENTAL_SYMBOLS = { 'sharp': '♯', 'flat': '♭', 'natural': '♮' }
+
 const pitchToJianpu = (diatonicPitch, keyRootPitch) => {
-  let relativePitch = diatonicPitch - keyRootPitch
+  let rel = diatonicPitch - keyRootPitch
   let octave = 0
-  while (relativePitch < 0) { relativePitch += 7; octave-- }
-  while (relativePitch >= 7) { relativePitch -= 7; octave++ }
-  return { number: relativePitch + 1, octave }
+  while (rel < 0) { rel += 7; octave-- }
+  while (rel >= 7) { rel -= 7; octave++ }
+  return { number: rel + 1, octave }
 }
 
 const getKeyRootPitch = (keyObj) => {
-  if (!keyObj || !keyObj.root) return 0
+  if (!keyObj?.root) return 0
   return KEY_ROOT_PITCH[keyObj.root.toUpperCase()] || 0
 }
 
 // Duration to rhythm info
 const getDurationInfo = (duration) => {
   const ratio = duration / 0.25
-  let dashes = 0, underlines = 0, dots = 0
+  let dashes = 0, underlines = 0, augDot = false
   
-  if (Math.abs(ratio - 1.5) < 0.05) { dots = 1 }
-  else if (Math.abs(ratio - 0.75) < 0.05) { underlines = 1; dots = 1 }
-  else if (Math.abs(ratio - 3) < 0.05) { dashes = 2; dots = 1 }
-  else if (Math.abs(ratio - 0.375) < 0.05) { underlines = 2; dots = 1 }
+  if (Math.abs(ratio - 1.5) < 0.05) { augDot = true }
+  else if (Math.abs(ratio - 0.75) < 0.05) { underlines = 1; augDot = true }
+  else if (Math.abs(ratio - 3) < 0.05) { dashes = 2; augDot = true }
+  else if (Math.abs(ratio - 0.375) < 0.05) { underlines = 2; augDot = true }
   else {
     if (ratio >= 2) dashes = Math.round(ratio) - 1
     else if (ratio < 0.99) {
@@ -102,10 +134,10 @@ const getDurationInfo = (duration) => {
       if (ratio <= 0.13) underlines = 3
     }
   }
-  return { dashes, underlineCount: underlines, dots }
+  return { dashes, underlines, augDot }
 }
 
-// Computed: Key and Meter display
+// Computed displays
 const keyDisplay = computed(() => {
   const k = props.tune?.lines?.[0]?.staff?.[0]?.key
   if (!k) return 'C'
@@ -120,93 +152,132 @@ const meterDisplay = computed(() => {
   if (!m) return null
   if (m.type === 'specified' && m.value?.[0]) return `${m.value[0].num}/${m.value[0].den}`
   if (m.type === 'common_time') return '4/4'
-  if (m.type === 'cut_time') return '2/2'
   return null
 })
 
-// Main: Parse tune into measures, then group into rows
-const displayRows = computed(() => {
+// Main computation
+const totalNotes = ref(0)
+const totalMeasures = ref(0)
+
+const computedRows = computed(() => {
   if (!props.tune?.lines) return []
   
-  let currentKeyRoot = 0
-  const allMeasures = [] // Array of { elements: [] }
-  let currentMeasure = { elements: [] }
+  let keyRoot = 0
+  const allMeasures = []
+  let currentMeasure = { notes: [], width: 0 }
+  let noteCount = 0
   
   props.tune.lines.forEach(line => {
     if (!line.staff) return
-    
     line.staff.forEach(staff => {
-      if (staff.key) currentKeyRoot = getKeyRootPitch(staff.key)
-      
+      if (staff.key) keyRoot = getKeyRootPitch(staff.key)
       staff.voices.forEach(voice => {
         voice.forEach(el => {
           const elId = el._myId || null
           
           if (el.el_type === 'bar') {
-            // End current measure
-            if (currentMeasure.elements.length > 0) {
+            if (currentMeasure.notes.length > 0) {
+              currentMeasure.width += MEASURE_PADDING
               allMeasures.push(currentMeasure)
-              currentMeasure = { elements: [] }
+              currentMeasure = { notes: [], width: 0 }
             }
           } else if (el.el_type === 'note') {
+            noteCount++
+            const rhythm = getDurationInfo(el.duration)
+            const noteWidth = NOTE_WIDTH + rhythm.dashes * DASH_WIDTH
+            
             if (el.rest) {
-              currentMeasure.elements.push({
-                type: 'rest',
+              currentMeasure.notes.push({
                 id: elId,
-                ...getDurationInfo(el.duration)
+                x: currentMeasure.width,
+                number: 0,
+                isRest: true,
+                highDots: 0, lowDots: 0, accidental: null,
+                ...rhythm,
+                width: noteWidth
               })
             } else if (el.pitches?.[0]) {
               const p = el.pitches[0]
-              const jData = pitchToJianpu(p.pitch, currentKeyRoot)
-              const rhythm = getDurationInfo(el.duration)
-              currentMeasure.elements.push({
-                type: 'note',
+              const jData = pitchToJianpu(p.pitch, keyRoot)
+              currentMeasure.notes.push({
                 id: elId,
+                x: currentMeasure.width,
                 number: jData.number,
+                isRest: false,
                 highDots: jData.octave > 0 ? jData.octave : 0,
                 lowDots: jData.octave < 0 ? Math.abs(jData.octave) : 0,
                 accidental: p.accidental ? (ACCIDENTAL_SYMBOLS[p.accidental] || null) : null,
-                ...rhythm
+                ...rhythm,
+                width: noteWidth
               })
             }
+            currentMeasure.width += noteWidth
           }
         })
       })
     })
   })
   
-  // Push last measure if not empty
-  if (currentMeasure.elements.length > 0) {
+  if (currentMeasure.notes.length > 0) {
+    currentMeasure.width += MEASURE_PADDING
     allMeasures.push(currentMeasure)
   }
   
-  // Group measures into rows (MEASURES_PER_ROW per row)
+  totalNotes.value = noteCount
+  totalMeasures.value = allMeasures.length
+  
+  // Group into rows
   const rows = []
-  for (let i = 0; i < allMeasures.length; i += MEASURES_PER_ROW) {
-    rows.push(allMeasures.slice(i, i + MEASURES_PER_ROW))
+  let rowX = 0
+  let currentRow = { measures: [] }
+  
+  allMeasures.forEach((m, idx) => {
+    currentRow.measures.push({ ...m, x: rowX })
+    rowX += m.width
+    
+    if ((idx + 1) % MEASURES_PER_ROW === 0) {
+      rows.push(currentRow)
+      currentRow = { measures: [] }
+      rowX = 0
+    }
+  })
+  
+  if (currentRow.measures.length > 0) {
+    rows.push(currentRow)
   }
   
   return rows
+})
+
+const svgWidth = computed(() => {
+  if (computedRows.value.length === 0) return 400
+  const maxWidth = Math.max(...computedRows.value.map(row => 
+    row.measures.reduce((sum, m) => sum + m.width, 0)
+  ))
+  return Math.max(400, maxWidth + 40)
+})
+
+const svgHeight = computed(() => {
+  return computedRows.value.length * rowHeight + 40
 })
 </script>
 
 <style scoped>
 .jianpu-score {
-  font-family: 'SimSun', 'Songti SC', 'Noto Serif SC', serif;
+  font-family: 'SimSun', 'Songti SC', serif;
   background: #fff;
   padding: 24px;
-  color: #222;
-  line-height: 1.2;
 }
 
 .header-info {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .title {
   font-size: 28px;
   font-weight: bold;
+  color: #222;
   margin-bottom: 8px;
 }
 
@@ -218,117 +289,63 @@ const displayRows = computed(() => {
   justify-content: center;
 }
 
-.music-body {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.music-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 16px;
-}
-
-.measure {
-  flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px;
-  padding: 0 8px;
-  min-height: 48px;
-}
-
-.bar {
-  font-size: 24px;
-  color: #666;
-  font-weight: 300;
-  margin-left: 4px;
-}
-
-/* Note container */
-.note {
-  display: inline-flex;
-  align-items: baseline;
-  margin: 0 2px;
-  position: relative;
-}
-
-.acc {
-  font-size: 12px;
-  margin-right: 1px;
-  vertical-align: super;
-}
-
-.note-inner {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-}
-
-.num {
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-.dot-high, .dot-low {
-  font-size: 10px;
-  line-height: 0.6;
-  letter-spacing: -1px;
-}
-
-.dot-high {
-  margin-bottom: -4px;
-}
-
-.dot-low {
-  margin-top: -4px;
-}
-
-.underlines {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  position: absolute;
-  bottom: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.uline {
+.music-svg {
   display: block;
-  width: 14px;
-  height: 1px;
-  background: #222;
+  margin: 0 auto;
 }
 
-.aug {
+/* SVG Styles */
+.note-number {
+  font-size: 22px;
+  font-family: 'Times New Roman', serif;
+  fill: #222;
+  text-anchor: middle;
+}
+
+.note-number.is-rest {
+  fill: #666;
+}
+
+.accidental {
   font-size: 14px;
-  font-weight: bold;
-  margin-left: 1px;
+  fill: #222;
+}
+
+.octave-dot {
+  fill: #222;
+}
+
+.underline {
+  stroke: #222;
+  stroke-width: 1.5;
+}
+
+.aug-dot {
+  fill: #222;
 }
 
 .dash {
-  font-size: 20px;
-  margin-left: 2px;
+  stroke: #222;
+  stroke-width: 2;
 }
 
-/* Highlighting */
-.highlight .num,
-.highlight .dash,
-.highlight .acc {
-  color: #d03050;
+.bar-line {
+  stroke: #666;
+  stroke-width: 1;
 }
-.highlight .uline {
-  background: #d03050;
+
+.highlight-bg {
+  fill: rgba(208, 48, 80, 0.2);
+  rx: 4;
 }
-.highlight .dot-high,
-.highlight .dot-low {
-  color: #d03050;
+
+/* Debug Panel */
+.debug-panel {
+  margin-top: 20px;
+  padding: 12px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
 }
 </style>
