@@ -35,18 +35,18 @@
           <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
              :transform="`translate(${note.x}, 0)` + (note.isGrace ? ' scale(0.65)' : '')"
              :class="{ 'grace-note-group': note.isGrace, 'clickable-note': !note.isRest }"
-             @click="$emit('seek-to-note', note.timePercent)">
+             @click="onNoteClick(note)">
              
             <!-- Highlight -->
             <rect v-if="!note.isGrace && (activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)))"
               class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55" />
             
             <!-- Accidental -->
-            <text v-if="note.accidental" class="accidental" :x="0" y="48">{{ note.accidental }}</text>
+            <text v-if="note.accidental" class="accidental" :x="-2" y="48">{{ note.accidental }}</text>
             
             <!-- High octave dots -->
             <template v-if="note.highDots > 0">
-              <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="22 - (d-1)*8" r="2.5" />
+              <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="24 - (d-1)*7" r="2.5" />
             </template>
             
             <!-- Main number -->
@@ -57,25 +57,25 @@
 
             <!-- Low octave dots -->
             <template v-if="note.lowDots > 0">
-              <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*8 + (note.hasBeam ? 10 : note.underlines * 5)" r="2.5" />
+              <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*7 + (note.hasBeam ? 12 : note.underlines * 5)" r="2.5" />
             </template>
             
             <!-- Underlines (only if NOT beamed) -->
             <template v-if="!note.hasBeam && note.underlines > 0">
-              <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="60 + (u-1)*5" :x2="27" :y2="60 + (u-1)*5" />
+              <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="58 + (u-1)*5" :x2="27" :y2="58 + (u-1)*5" />
             </template>
             
             <!-- Augmentation dot -->
-            <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="32" :cy="45" r="3"/>
+            <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="45" r="2.5"/>
             
-            <!-- Dashes (延音线) - Short and thick -->
+            <!-- Dashes (延音线) - 垂直居中于数字高度，宽度与数字一致，加粗 -->
             <template v-if="note.dashes > 0 && !note.isRest && !note.isGrace">
               <line v-for="d in note.dashes" :key="'d'+d" class="dash"
-                :x1="30 + (d-1)*30" :y1="42" :x2="50 + (d-1)*30" :y2="42" />
+                :x1="NOTE_WIDTH + (d-1)*DASH_WIDTH + 5" :y1="44" :x2="NOTE_WIDTH + (d-1)*DASH_WIDTH + DASH_WIDTH - 5" :y2="44" />
             </template>
 
             <!-- Lyric -->
-            <text v-if="note.lyric" class="lyric-text" x="15" y="85">{{ note.lyric }}</text>
+            <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
           </g>
           
           <!-- Tie lines (Filled Shapes) -->
@@ -94,14 +94,14 @@
           </template>
           
           <!-- Bar Lines -->
-          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(2, 0)">
-            <rect class="bar-thick" x="-2" y="20" width="4" height="45"/>
-            <line class="bar-line" x1="5" y1="20" x2="5" y2="65"/>
-            <circle class="repeat-dot" cx="12" cy="38" r="2.5"/>
-            <circle class="repeat-dot" cx="12" cy="48" r="2.5"/>
+          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(-5, 0)">
+            <rect class="bar-thick" x="0" y="20" width="4" height="45"/>
+            <line class="bar-line" x1="7" y1="20" x2="7" y2="65"/>
+            <circle class="repeat-dot" cx="14" cy="35" r="2.5"/>
+            <circle class="repeat-dot" cx="14" cy="50" r="2.5"/>
           </g>
           
-          <g class="bar-lines" :transform="`translate(${measureWidth - 2}, 0)`">
+          <g class="bar-lines" :transform="`translate(${measureWidth + 5}, 0)`">
             <line v-if="measure.barType === 'bar_thin'" class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
             <template v-if="measure.barType === 'bar_dbl_thin'">
               <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
@@ -114,14 +114,14 @@
             <template v-if="measure.barType === 'bar_left_repeat'">
               <rect class="bar-thick" x="-8" y="20" width="4" height="45"/>
               <line class="bar-line" x1="-2" y1="20" x2="-2" y2="65"/>
-              <circle class="repeat-dot" cx="5" cy="38" r="2.5"/>
-              <circle class="repeat-dot" cx="5" cy="48" r="2.5"/>
+              <circle class="repeat-dot" cx="5" cy="35" r="2.5"/>
+              <circle class="repeat-dot" cx="5" cy="50" r="2.5"/>
             </template>
             <template v-if="measure.barType === 'bar_right_repeat'">
-              <circle class="repeat-dot" cx="-14" cy="38" r="2.5"/>
-              <circle class="repeat-dot" cx="-14" cy="48" r="2.5"/>
-              <line class="bar-line" x1="-7" y1="20" x2="-7" y2="65"/>
-              <rect class="bar-thick" x="-2" y="20" width="4" height="45"/>
+              <circle class="repeat-dot" cx="-18" cy="35" r="2.5"/>
+              <circle class="repeat-dot" cx="-18" cy="50" r="2.5"/>
+              <line class="bar-line" x1="-10" y1="20" x2="-10" y2="65"/>
+              <rect class="bar-thick" x="-6" y="20" width="4" height="45"/>
             </template>
             <!-- Double repeat omitted for brevity, handled by left/right combos usually -->
           </g>
@@ -151,17 +151,30 @@ const props = defineProps({
   debugMode: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['measure-issues'])
+const emit = defineEmits(['measure-issues', 'seek-to-note'])
 
 const activeIds = computed(() => new Set(props.activeNoteIds))
 
+// 点击音符跳转
+const onNoteClick = (note) => {
+  if (note.isRest) return
+  // 使用 absoluteTime (绝对时间) 而非 timePercent
+  // 发射原始音符 ID 和时间百分比
+  emit('seek-to-note', {
+    noteId: note.id || note.originalId,
+    timePercent: note.timePercent,
+    absoluteTime: note.absoluteTime
+  })
+}
+
 // Layout constants
-const NOTE_WIDTH = 40  // 增大音符宽度
-const DASH_WIDTH = 25  // 增大延音线间距
-const MEASURE_PADDING = 15
+const NOTE_WIDTH = 30  // 音符基础宽度
+const DASH_WIDTH = 30  // 延音线占位宽度（与数字一致）
+const MEASURE_PADDING = 20
 const MEASURES_PER_ROW = 4
-const rowHeight = 100  // 调整行高
-const measureWidth = 220 // 增大小节宽度
+const rowHeight = 110  // 调整行高，给歌词留空间
+const measureWidth = 260 // 增大小节宽度
+const BEAT_GAP = 18 // 拍间额外间距
 
 // Pitch mapping (diatonic)
 const KEY_ROOT_PITCH = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 }
@@ -233,14 +246,18 @@ const getDurationInfo = (duration, isRest = false) => {
   // 二分音符 (2拍) = 1条延音线
   else if (Math.abs(ratio - 2) < 0.05) {
     dashes = 1
+    augDot = false // 确保没有附点
   }
   // 全音符 (4拍) = 3条延音线
   else if (Math.abs(ratio - 4) < 0.05) {
     dashes = 3
+    augDot = false // 确保没有附点
   }
-  // 其他长音符
-  else if (ratio > 2) {
+  // 其他长音符（非标准时值）
+  else if (ratio > 1) {
+    // 计算需要多少条延音线：每条延音线代表一拍
     dashes = Math.round(ratio) - 1
+    augDot = false // 非标准长音符不加附点
   }
   // 短音符
   else if (ratio < 0.99) {
@@ -303,45 +320,77 @@ const getNoteDisplayWidth = (note) => {
   // Base width for the note digit
   let width = NOTE_WIDTH
   
-  // Add width for dashes (延音线)
+  // Add width for dashes (延音线) - 每条延音线占位与数字宽度一致
   if (note.dashes > 0) {
     width += note.dashes * DASH_WIDTH
   }
   
-  // Add width for augmentation dot
-  if (note.augDot) {
-    width += 8
-  }
+  // 附点不额外占宽度，它在数字右侧
   
   return width
 }
 
 // Layout notes within a measure - calculates x positions
+// 实现"拍内紧凑、拍间疏离"的布局
 const layoutMeasureNotes = (measure) => {
   if (!measure.notes || measure.notes.length === 0) return
   
   const availableWidth = measureWidth - MEASURE_PADDING * 2
   
-  // First pass: calculate total minimum width needed
-  let totalMinWidth = 0
-  measure.notes.forEach(note => {
+  // 首先按拍分组
+  const beatGroups = {}
+  measure.notes.forEach((note, idx) => {
     // Grace notes are smaller
     if (note.isGrace) {
       note.displayWidth = NOTE_WIDTH * 0.6
     } else {
       note.displayWidth = getNoteDisplayWidth(note)
     }
-    totalMinWidth += note.displayWidth
+    
+    // 计算所属拍 (以四分音符为一拍)
+    const beatIdx = Math.floor(note.relativeStartTime / 0.25)
+    if (!beatGroups[beatIdx]) beatGroups[beatIdx] = []
+    beatGroups[beatIdx].push({ note, idx })
   })
   
-  // Calculate scale factor if we need to compress
-  const scaleFactor = totalMinWidth > availableWidth ? availableWidth / totalMinWidth : 1
+  const beatKeys = Object.keys(beatGroups).map(Number).sort((a, b) => a - b)
+  const numBeats = beatKeys.length
   
-  // Second pass: assign x positions
-  let currentX = 0
-  measure.notes.forEach((note, idx) => {
-    note.x = currentX
-    currentX += note.displayWidth * scaleFactor
+  // 计算每个拍组的总宽度
+  const beatWidths = {}
+  let totalMinWidth = 0
+  beatKeys.forEach(beatIdx => {
+    const group = beatGroups[beatIdx]
+    let groupWidth = 0
+    group.forEach(({ note }) => {
+      groupWidth += note.displayWidth
+    })
+    beatWidths[beatIdx] = groupWidth
+    totalMinWidth += groupWidth
+  })
+  
+  // 计算拍间间隙总量
+  const totalBeatGaps = (numBeats > 1) ? (numBeats - 1) * BEAT_GAP : 0
+  const totalNeeded = totalMinWidth + totalBeatGaps
+  
+  // 计算缩放因子
+  const scaleFactor = totalNeeded > availableWidth ? availableWidth / totalNeeded : 1
+  
+  // 分配位置
+  let currentX = MEASURE_PADDING
+  beatKeys.forEach((beatIdx, i) => {
+    const group = beatGroups[beatIdx]
+    
+    // 拍内紧凑排列
+    group.forEach(({ note }) => {
+      note.x = currentX
+      currentX += note.displayWidth * scaleFactor
+    })
+    
+    // 拍间增加间隙
+    if (i < numBeats - 1) {
+      currentX += BEAT_GAP * scaleFactor
+    }
   })
   
   // Update tie start/end x positions
@@ -492,23 +541,17 @@ const computedRows = computed(() => {
 
     // 按 beatGroup 分组
     const groups = {}
-    measure.notes.forEach(note => {
-      if (note.isGrace) return // 倚音单独处理
-      const g = Math.floor(note.relativeStartTime / 0.25) // 假设以1/4音符为一拍
-      if (!groups[g]) groups[g] = []
-      groups[g].push(note)
+    measure.notes.forEach((note, idx) => {
+      if (note.isGrace) return
+      note._measureIdx = idx
+      const beatIdx = Math.floor(note.relativeStartTime / 0.25)
+      if (!groups[beatIdx]) groups[beatIdx] = []
+      groups[beatIdx].push(note)
     })
 
     // 处理每一组
     Object.values(groups).forEach(groupNotes => {
-      if (groupNotes.length < 2) {
-         // 单个音符，回退到由于 note.underlines 属性渲染 (在 getDurationInfo 中计算，但这里我们覆盖它)
-         // 如果我们想统一用 beams 渲染，也要处理单个音符的情况。
-         // 为了兼容现有逻辑，如果是单个音符，我们让 note 自身保留 underlines 属性。
-         // 如果是多个音符，我们将生成 combined beams，并清除 note 自身的 underlines 以免重复？
-         // 不，简谱习惯：如果多个音符连写，横线是连在一起的。
-         return 
-      }
+      if (groupNotes.length < 2) return
 
       // 检查这一组是否都“可以”合并 (即都是短音符)
       // 实际上简谱中，同一拍内的 8分、16分音符通常是连在一起的。
@@ -516,45 +559,39 @@ const computedRows = computed(() => {
       // 第1层线 (8分音符层): 所有 duration <= 0.125 的音符连续区间
       // 第2层线 (16分音符层): 所有 duration <= 0.0625 的音符连续区间
       
-      const beamLevels = [0.125, 0.0625, 0.03125] // 对应 1条, 2条, 3条线
+      const beamLevels = [1, 2, 3] // 对应 underlines >= 1, 2, 3
       
-      beamLevels.forEach((threshold, levelIdx) => {
-        // levelIdx 0 -> 1st line (bottom), 1 -> 2nd line (above 1st)... 
-        // 其实简谱是从上往下加线的。1条线在最上，2条线在下面再加一条。
-        // y 坐标：baseY + levelIdx * 5
-        
+      beamLevels.forEach((minUnderlines, levelIdx) => {
         let startNote = null
         let endNote = null
+        let count = 0
         
         for (let i = 0; i < groupNotes.length; i++) {
           const note = groupNotes[i]
-          if (note.duration <= threshold + 0.001 && !note.isRest) { // 休止符通常断开？
-             // 简谱中休止符 0 下面通常也有线
+          if (note.underlines >= minUnderlines && !note.isRest) {
              if (!startNote) startNote = note
              endNote = note
+             count++
           } else {
              // 结束一段
-             if (startNote && endNote && startNote !== endNote) {
+             if (startNote && endNote && count >= 2) {
                measure.beams.push({
-                 x1: 0, // 布局后计算
+                 x1: 0,
                  x2: 0,
-                 y: 60 + levelIdx * 5,
+                 y: 58 + levelIdx * 5,
                  startID: startNote.id,
                  endID: endNote.id
                })
-               // 标记这些音符这层线已由 beam 处理，不需要 note 自身渲染
-               // 但这需要复杂的 flag。
-               // 简单策略：如果生成了 beam，就设 flag hideUnderlines = true?
-               // 不行，可能同一拍里前两个连，后两个连。
              }
              startNote = null
              endNote = null
+             count = 0
           }
         }
         // 尾部检查
-        if (startNote && endNote && startNote !== endNote) {
+        if (startNote && endNote && count >= 2) {
            measure.beams.push({
-             x1: 0, x2: 0, y: 60 + levelIdx * 5,
+             x1: 0, x2: 0, y: 58 + levelIdx * 5,
              startID: startNote.id, endID: endNote.id
            })
         }
@@ -715,6 +752,7 @@ const computedRows = computed(() => {
                  // 只有第一个休止符携带歌词（如果有）
                  if (idx === 0) note.lyric = lyric
                  note.timePercent = currentAccumulatedDuration / tuneDuration.value
+                 note.absoluteTime = currentAccumulatedDuration
                  
                  currentMeasure.notes.push(note)
                  beatPosition += note.duration
@@ -749,7 +787,8 @@ const computedRows = computed(() => {
                  endTriplet: el.endTriplet,
                  lyric: lyric,
                  relativeStartTime: beatPosition,
-                 timePercent: currentAccumulatedDuration / tuneDuration.value
+                 timePercent: currentAccumulatedDuration / tuneDuration.value,
+                 absoluteTime: currentAccumulatedDuration
                }
                
                // Tie/Slur logic (same as before)
@@ -928,7 +967,7 @@ const svgHeight = computed(() => {
 
 .dash {
   stroke: #000;
-  stroke-width: 2.5;
+  stroke-width: 4;
   stroke-linecap: round;
 }
 

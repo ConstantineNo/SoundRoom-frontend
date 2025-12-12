@@ -66,7 +66,7 @@
           :active-note-ids="activeNoteIds"
           :debug-mode="true"
           @measure-issues="handleMeasureIssues"
-          @seek-to-note="(time) => synthControl && synthControl.seek(time)"
+          @seek-to-note="handleSeekToNote"
         />
       </div>
     </div>
@@ -166,6 +166,16 @@ const findMeasureLineNumber = (measureNumber) => {
 // 处理来自 JianpuScore 的时值问题
 const handleMeasureIssues = (issues) => {
   measureIssues.value = issues
+}
+
+// 处理点击音符跳转
+const handleSeekToNote = (data) => {
+  if (!synthControl) return
+  // data 包含 { noteId, timePercent, absoluteTime }
+  // synthControl.seek 使用的是百分比 (0-1)
+  if (data.timePercent !== undefined) {
+    synthControl.seek(data.timePercent)
+  }
 }
 
 // 同步滚动
