@@ -10,7 +10,6 @@
       </div>
       <div class="right">
         <n-button type="primary" @click="saveScore" :loading="saving">保存并解析</n-button>
-        <n-button type="primary" @click="saveScore" :loading="saving">保存并解析</n-button>
         <div class="view-switcher" style="margin-left: 10px; display: inline-flex; gap: 5px;">
            <n-button size="small" :type="viewMode === 'staff' ? 'primary' : 'default'" @click="viewMode = 'staff'">五线谱</n-button>
            <n-button size="small" :type="viewMode === 'jianpu' ? 'primary' : 'default'" @click="viewMode = 'jianpu'">简谱</n-button>
@@ -36,7 +35,6 @@
       <!-- Right: Preview -->
       <div class="pane right-pane">
         <div id="audio" class="audio-container"></div>
-        <div id="audio" class="audio-container"></div>
         <div id="paper" class="paper-container" v-show="viewMode === 'staff'"></div>
         <JianpuScore 
           v-if="viewMode === 'jianpu' && visualObj" 
@@ -52,8 +50,6 @@
 import { ref, onMounted, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
-import abcjs from 'abcjs'
-import 'abcjs/abcjs-audio.css'
 import abcjs from 'abcjs'
 import 'abcjs/abcjs-audio.css'
 import { useMessage, NButton, NIcon } from 'naive-ui'
@@ -107,7 +103,6 @@ const renderAbc = debounce(async () => {
     })
     
     // Inject IDs into visual object for mapping
-    // We iterate the rendered object and tag elements
     if (tune && tune[0]) {
        let uid = 0;
        tune[0].lines.forEach(line => {
@@ -115,7 +110,6 @@ const renderAbc = debounce(async () => {
                line.staff.forEach(staff => {
                    staff.voices.forEach(voice => {
                        voice.forEach(el => {
-                           // Modifying the abcjs object directly to ensure persistence
                            el._myId = `note_${uid++}`
                        })
                    })
@@ -151,71 +145,50 @@ const renderAbc = debounce(async () => {
         displayWarp: true // 允许变速
       })
 
-      // C. 创建音频合成器 (这是您原代码缺失的核心步骤)
+      // C. 创建音频合成器
       createSynth = new abcjs.synth.CreateSynth()
       
       try {
-        // D. 初始化合成器 (生成 MIDI Buffer)
-        await createSynth.init({ visualObj: visualObj[0] })
+        // D. 初始化合成器 (生成 MIDI Buffer) - 使用 tune[0] 而不是 visualObj[0]
+        await createSynth.init({ visualObj: tune[0] })
         
         // Cursor Control Logic
         const cursorControl = {
           onStart() {
-            // Clear any existing highlights
             const els = document.querySelectorAll('.highlight-note')
             els.forEach(el => el.classList.remove('highlight-note'))
+            activeNoteIds.value = []
           },
           onEvent(ev) {
-            // Remove highlight from previous notes
+            // Remove highlight from previous notes (for staff mode)
             const els = document.querySelectorAll('.highlight-note')
             els.forEach(el => el.classList.remove('highlight-note'))
             
             // Highlight current elements
             if (ev && ev.elements) {
-               // ev.elements contains SVG elements.
-               // We need to map back to the 'el' object to get _myId
                const newIds = [];
                ev.elements.forEach(svgEl => {
-                   // abcjs attaches the original element to the SVG node as 'abcelem' usually?
-                   // Actually, in abcjs 6, the event passed to listener gives access.
-                   // Let's assume one of the elements has the property
-                   // Or look at `ev.elements` which are DOM nodes.
-                   // The DOM node usually has `__data__` if D3, or `abcelem` property?
-                   // No, abcjs doesn't strictly attach `abcelem` to DOM node in standard build unless instrumented.
-                   // BUT, since we modified `visualObj`, and `visualObj` generates the Sequence.
-                   // Timing callbacks in abcjs return `{ elements: [SVGElement], measure: number, ...}`.
-                   
-                   // Alternate strategy:
-                   // The `ev.elements` array corresponds to the "notes at this moment".
-                   // If we are in 'staff' mode, we use classList additions (standard).
-                   // If we are in 'jianpu' mode, we need to find the `_myId`.
-                   
-                   // HACK: Start simple. If we are in Staff mode, do standard highlight.
                    if (viewMode.value === 'staff') {
                        svgEl.classList.add('highlight-note');
                    } else {
-                       // In Jianpu mode.
-                       // We can't easily track from SVG element back to abstract object strictly via public API.
-                       // However, we can use the `abcelem` property if it exists.
+                       // In Jianpu mode, try to get the abcelem
                        const abstractEl = svgEl.abcelem;
                        if (abstractEl && abstractEl._myId) {
                            newIds.push(abstractEl._myId);
                        }
                    }
                });
-               
-               // Update Vue state for Jianpu
                activeNoteIds.value = newIds;
             }
           },
           onFinished() {
             const els = document.querySelectorAll('.highlight-note')
             els.forEach(el => el.classList.remove('highlight-note'))
+            activeNoteIds.value = []
           }
         }
 
         // E. 将合成器连接到控制器
-        // millisecondsPerMeasure: 用于控制初始速度，可选
         await synthControl.setTune(tune[0], true, {
           chordsOff: true, // 竹笛单旋律，建议关闭和弦伴奏
           cursorControl: cursorControl
@@ -278,16 +251,12 @@ const saveScore = async () => {
   }
 }
 
-// function handleGenerateJianpu removed as we have switching now
-
-
 onMounted(() => {
   fetchScore()
 })
 
 onUnmounted(() => {
   if (synthControl) {
-    // Cleanup if needed, though abcjs doesn't strictly require it for simple usage
     synthControl = null
   }
 })
@@ -329,7 +298,7 @@ onUnmounted(() => {
 .main-content {
   flex: 1;
   display: flex;
-  align-items: flex-start; /* Important for sticky sidebar */
+  align-items: flex-start;
 }
 
 .pane {
@@ -341,7 +310,6 @@ onUnmounted(() => {
   border-right: 1px solid #ddd;
   display: flex;
   flex-direction: column;
-  /* Sticky Sidebar */
   position: sticky;
   top: 60px;
   height: calc(100vh - 60px);
@@ -391,7 +359,7 @@ onUnmounted(() => {
   background: #f9f9f9;
   border-radius: 8px;
   margin-bottom: 10px;
-  min-height: 50px; /* 预留高度，防止加载时闪烁 */
+  min-height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -427,7 +395,7 @@ onUnmounted(() => {
 
 /* Note Highlighting */
 :deep(.highlight-note) {
-  fill: #d03050 !important; /* using a reddish color */
+  fill: #d03050 !important;
   stroke: #d03050 !important;
 }
 :deep(.highlight-note path) {
