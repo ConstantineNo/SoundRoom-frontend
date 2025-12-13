@@ -14,6 +14,7 @@ export const useUserStore = defineStore('user', {
     actions: {
         /**
          * 获取当前用户信息（包括role）
+         * 使用 /api/auth/me 接口
          */
         async fetchUserInfo() {
             if (!this.token) {
@@ -21,38 +22,32 @@ export const useUserStore = defineStore('user', {
             }
             
             try {
-                // 尝试多个可能的用户信息接口
-                const endpoints = ['/api/auth/me', '/api/auth/user', '/api/user/me', '/api/user/info']
-                let userInfo = null
+                const response = await axios.get('/api/auth/me', {
+                    headers: { 'Authorization': `Bearer ${this.token}` }
+                })
                 
-                for (const endpoint of endpoints) {
-                    try {
-                        const response = await axios.get(endpoint, {
-                            headers: { 'Authorization': `Bearer ${this.token}` }
-                        })
-                        userInfo = response.data
-                        break
-                    } catch (err) {
-                        // 继续尝试下一个接口
-                        continue
-                    }
+                const userInfo = response.data
+                
+                // 更新用户信息
+                if (userInfo.role) {
+                    this.role = userInfo.role
+                    localStorage.setItem('role', this.role)
+                }
+                if (userInfo.username) {
+                    this.username = userInfo.username
+                    localStorage.setItem('username', this.username)
                 }
                 
-                if (userInfo) {
-                    if (userInfo.role) {
-                        this.role = userInfo.role
-                        localStorage.setItem('role', this.role)
-                    }
-                    if (userInfo.username && !this.username) {
-                        this.username = userInfo.username
-                        localStorage.setItem('username', this.username)
-                    }
-                    return userInfo
-                }
-                
-                return null
+                return userInfo
             } catch (error) {
-                console.error('获取用户信息失败:', error)
+                // 401 未授权，可能是token过期
+                if (error.response && error.response.status === 401) {
+                    console.error('获取用户信息失败: 未授权，可能需要重新登录')
+                    // 可以选择清除token，让用户重新登录
+                    // this.logout()
+                } else {
+                    console.error('获取用户信息失败:', error)
+                }
                 return null
             }
         },
