@@ -178,10 +178,11 @@ const handleSeekToNote = (data) => {
   }
   
   // data 包含 { noteId, timePercent, absoluteTime }
-  // synthControl.seek 使用的是百分比 (0-1)
+  // synthControl.seek 接受百分比 (0-1) 并需要指定 "percent" 作为单位
   if (data.timePercent !== undefined && data.timePercent >= 0 && data.timePercent <= 1) {
     console.log('[Editor] 执行 seek, timePercent:', data.timePercent)
-    synthControl.seek(data.timePercent)
+    // 使用 "percent" 参数确保以百分比方式seek
+    synthControl.seek(data.timePercent, "percent")
   } else {
     console.warn('[Editor] timePercent 无效:', data.timePercent)
   }

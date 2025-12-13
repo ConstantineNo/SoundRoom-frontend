@@ -13,6 +13,11 @@
     <svg :width="svgWidth" :height="svgHeight" class="music-svg">
       <!-- Rows -->
       <g v-for="(row, rowIdx) in computedRows" :key="rowIdx" :transform="`translate(0, ${rowIdx * rowHeight})`">
+        <!-- Cross-measure ties (跨小节连音线) -->
+        <template v-for="(crossTie, ctIdx) in row.crossMeasureTies" :key="'ct'+ctIdx">
+          <path class="tie-line" :d="getCrossMeasureTiePath(crossTie, row.measures)" />
+        </template>
+        
         <!-- Measures in this row -->
         <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
           <!-- Warning background -->
@@ -67,26 +72,27 @@
               <!-- Augmentation dot -->
               <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="42" r="2.5"/>
               
-              <!-- Dashes (延音线) -->
+              <!-- Dashes (延音线/增时线) - 横线在数字右侧，与数字中心垂直对齐 -->
               <template v-if="note.dashes > 0 && !note.isRest">
                 <line v-for="d in note.dashes" :key="'d'+d" class="dash"
-                  :x1="3 + (d-1)*DASH_WIDTH" :y1="42" :x2="27 + (d-1)*DASH_WIDTH" :y2="42" />
+                  :x1="NOTE_WIDTH + 2 + (d-1)*DASH_WIDTH" :y1="42" :x2="NOTE_WIDTH + DASH_WIDTH - 5 + (d-1)*DASH_WIDTH" :y2="42" />
               </template>
 
               <!-- Lyric -->
               <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
               
-              <!-- Grace notes group (倚音组，显示在主音符右上角) -->
-              <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container">
+              <!-- Grace notes group (倚音组，显示在主音符左上角) -->
+              <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container"
+                 :transform="`translate(${-note.graceNotes.length * 14 - 5}, 0)`">
                 <!-- 倚音弧线 -->
                 <path v-if="note.graceNotes.length > 1" class="grace-slur" 
-                  :d="getGraceSlurPath(note.graceNotes)" />
+                  :d="getGraceSlurPath(note.graceNotes, note.graceNotes.length)" />
                 <!-- 三连音标记 -->
                 <text v-if="note.graceNotes.length === 3" class="grace-triplet-mark"
-                  :x="note.displayWidth + 10 + (note.graceNotes.length * 12) / 2" y="5">3</text>
+                  :x="(note.graceNotes.length * 14) / 2" y="8">3</text>
                 <!-- 每个倚音 -->
                 <g v-for="(grace, gIdx) in note.graceNotes" :key="'g'+gIdx"
-                   :transform="`translate(${note.displayWidth + 5 + gIdx * 18}, -15) scale(0.55)`">
+                   :transform="`translate(${gIdx * 14}, 0) scale(0.55)`">
                   <!-- 高八度点 -->
                   <template v-if="grace.highDots > 0">
                     <circle v-for="d in grace.highDots" :key="'gh'+d" class="octave-dot" :cx="10" :cy="20 - (d-1)*6" r="2" />
@@ -142,11 +148,11 @@
           
           <!-- Bar Lines -->
           <!-- 小节开始的左重复符号 (|:) -->
-          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(-5, 0)">
-            <rect class="bar-thick" x="0" y="20" width="4" height="45"/>
-            <line class="bar-line" x1="7" y1="20" x2="7" y2="65"/>
-            <circle class="repeat-dot" cx="14" cy="35" r="2.5"/>
-            <circle class="repeat-dot" cx="14" cy="50" r="2.5"/>
+          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(-2, 0)">
+            <rect class="bar-thick" x="-8" y="20" width="4" height="45"/>
+            <line class="bar-line" x1="-1" y1="20" x2="-1" y2="65"/>
+            <circle class="repeat-dot" cx="6" cy="35" r="2.5"/>
+            <circle class="repeat-dot" cx="6" cy="50" r="2.5"/>
           </g>
           
           <!-- 小节结束的竖线 -->
@@ -530,16 +536,17 @@ const getTiePath = (tie) => {
 }
 
 // Calculate grace notes slur path (倚音弧线)
-const getGraceSlurPath = (graceNotes) => {
+const getGraceSlurPath = (graceNotes, count) => {
   if (!graceNotes || graceNotes.length < 2) return ''
-  // 倚音组的弧线，跨越所有倚音
-  const startX = 10 // 第一个倚音的中心
-  const endX = 10 + (graceNotes.length - 1) * 18 // 最后一个倚音的中心
-  const y = 15 // 倚音上方
+  // 倚音组的弧线，跨越所有倚音 (倚音宽度 14px * 0.55 scale = ~7.7px)
+  const graceWidth = 14
+  const startX = 5 // 第一个倚音的中心 (缩放后)
+  const endX = 5 + (count - 1) * graceWidth // 最后一个倚音的中心
+  const y = 18 // 倚音上方
   const midX = (startX + endX) / 2
   const distance = Math.abs(endX - startX)
-  const h = Math.min(10, Math.max(5, distance * 0.3))
-  const thickness = 1.5
+  const h = Math.min(8, Math.max(4, distance * 0.25))
+  const thickness = 1.2
   
   return `M ${startX} ${y} Q ${midX} ${y - h} ${endX} ${y} Q ${midX} ${y - h + thickness} ${startX} ${y} Z`
 }
@@ -555,6 +562,32 @@ const getSlurPath = (slur) => {
   const distance = Math.abs(x2 - x1)
   const h = Math.min(15, Math.max(8, distance * 0.15))
   const thickness = 1.5 + Math.min(3, distance * 0.04)
+  
+  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+}
+
+// Calculate cross-measure tie path (跨小节连音线)
+const getCrossMeasureTiePath = (crossTie, measures) => {
+  if (!crossTie || !measures) return ''
+  
+  const startMeasure = measures[crossTie.startMeasureIdx]
+  const endMeasure = measures[crossTie.endMeasureIdx]
+  
+  if (!startMeasure || !endMeasure) return ''
+  
+  const startNote = startMeasure.notes[crossTie.startNoteIdx]
+  const endNote = endMeasure.notes[crossTie.endNoteIdx]
+  
+  if (!startNote || !endNote) return ''
+  
+  // Calculate absolute X positions
+  const x1 = startMeasure.x + startNote.x + NOTE_WIDTH / 2
+  const x2 = endMeasure.x + endNote.x + NOTE_WIDTH / 2
+  const y = 22
+  const midX = (x1 + x2) / 2
+  const distance = Math.abs(x2 - x1)
+  const h = Math.min(12, Math.max(6, distance * 0.12))
+  const thickness = 1.5 + Math.min(2.5, distance * 0.04)
   
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
@@ -584,6 +617,7 @@ const computedRows = computed(() => {
   let pendingStartBarType = null
   let currentAccumulatedDuration = 0
   const globalNotes = []  // 用于跨小节连音线
+  const crossMeasureTies = [] // 收集跨小节的 tie 信息
 
   // 第一步：先遍历一遍计算总时长，用于进度条计算（虽然abcjs有，但这里简单累加更便于控制）
   let totalDur = 0
@@ -868,19 +902,24 @@ const computedRows = computed(() => {
                currentAccumulatedDuration += duration
                
                globalNotes.push({ measureIdx: currentMeasureIdx, noteIdx: noteIndex, note: noteObj })
-               
-               // Tie Logic
-               if (pendingTie && pendingTie.pitch === noteObj.pitch) {
-                  if (pendingTie.measureIdx === currentMeasureIdx) {
-                    currentMeasure.ties.push({ startIdx: pendingTie.noteIdx, endIdx: noteIndex })
-                  } else {
-                    // 跨小节连音线：标记在两个音符上，渲染时画半截？或者在 Measure 渲染层处理 Cross-measure
-                    // 这里简化：暂不支持跨小节连线的完美渲染，或者只在当前小节画起始
-                    noteObj.hasTieEnd = true 
-                  }
-                  pendingTie = null
-               }
-               if (noteObj.hasTieStart) pendingTie = { measureIdx: currentMeasureIdx, noteIdx: noteIndex, pitch: noteObj.pitch }
+                              // Tie Logic
+                if (pendingTie && pendingTie.pitch === noteObj.pitch) {
+                   if (pendingTie.measureIdx === currentMeasureIdx) {
+                     currentMeasure.ties.push({ startIdx: pendingTie.noteIdx, endIdx: noteIndex })
+                   } else {
+                     // 跨小节连音线：收集信息以便在 Row 级别渲染
+                     crossMeasureTies.push({
+                       startMeasureIdx: pendingTie.measureIdx,
+                       startNoteIdx: pendingTie.noteIdx,
+                       endMeasureIdx: currentMeasureIdx,
+                       endNoteIdx: noteIndex,
+                       pitch: noteObj.pitch
+                     })
+                     noteObj.hasTieEnd = true
+                   }
+                   pendingTie = null
+                }
+                if (noteObj.hasTieStart) pendingTie = { measureIdx: currentMeasureIdx, noteIdx: noteIndex, pitch: noteObj.pitch }
                
                // Slur Logic (Simplified)
                if (noteObj.hasSlurStart) {
@@ -934,15 +973,45 @@ const computedRows = computed(() => {
   // Group Rows
   // 重置
   const rows = []
-  let currentRow = { measures: [] }
+  let currentRow = { measures: [], crossMeasureTies: [] }
   allMeasures.forEach((m, idx) => {
-    currentRow.measures.push({ ...m, x: currentRow.measures.length * (measureWidth + 15) }) // 增加间距
+    const measureIdxInRow = currentRow.measures.length
+    currentRow.measures.push({ ...m, x: measureIdxInRow * (measureWidth + 15), globalMeasureIdx: idx }) // 增加间距
     if ((idx + 1) % MEASURES_PER_ROW === 0) {
+      // 查找属于这一行的跨小节 tie
+      const rowStartMeasureIdx = idx - MEASURES_PER_ROW + 1
+      const rowEndMeasureIdx = idx
+      crossMeasureTies.forEach(ct => {
+        // 只添加起始和结束都在这一行的 tie
+        if (ct.startMeasureIdx >= rowStartMeasureIdx && ct.endMeasureIdx <= rowEndMeasureIdx) {
+          currentRow.crossMeasureTies.push({
+            startMeasureIdx: ct.startMeasureIdx - rowStartMeasureIdx,
+            startNoteIdx: ct.startNoteIdx,
+            endMeasureIdx: ct.endMeasureIdx - rowStartMeasureIdx,
+            endNoteIdx: ct.endNoteIdx
+          })
+        }
+      })
       rows.push(currentRow)
-      currentRow = { measures: [] }
+      currentRow = { measures: [], crossMeasureTies: [] }
     }
   })
-  if (currentRow.measures.length > 0) rows.push(currentRow)
+  if (currentRow.measures.length > 0) {
+    // 查找属于这一行的跨小节 tie
+    const rowStartMeasureIdx = allMeasures.length - currentRow.measures.length
+    const rowEndMeasureIdx = allMeasures.length - 1
+    crossMeasureTies.forEach(ct => {
+      if (ct.startMeasureIdx >= rowStartMeasureIdx && ct.endMeasureIdx <= rowEndMeasureIdx) {
+        currentRow.crossMeasureTies.push({
+          startMeasureIdx: ct.startMeasureIdx - rowStartMeasureIdx,
+          startNoteIdx: ct.startNoteIdx,
+          endMeasureIdx: ct.endMeasureIdx - rowStartMeasureIdx,
+          endNoteIdx: ct.endNoteIdx
+        })
+      }
+    })
+    rows.push(currentRow)
+  }
   
   return rows
 })
