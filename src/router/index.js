@@ -29,7 +29,7 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
     const userStore = useUserStore()
     
     // 检查是否需要管理员权限
@@ -40,9 +40,18 @@ router.beforeEach((to, from, next) => {
             return
         }
         
+        // 如果role为空或不确定，尝试从后端获取用户信息
+        if (!userStore.role) {
+            try {
+                await userStore.fetchUserInfo()
+            } catch (error) {
+                console.error('获取用户信息失败:', error)
+            }
+        }
+        
+        // 再次检查是否为管理员
         if (!userStore.isAdmin) {
             // 不是管理员，重定向到首页
-            // 提示消息将在组件中显示
             next({ 
                 path: '/library',
                 query: { error: 'no_admin_permission' }

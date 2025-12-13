@@ -33,7 +33,7 @@
 </template>
 
 <script setup>
-import { ref, h, Component } from 'vue'
+import { ref, h } from 'vue'
 import {
   NLayout,
   NLayoutSider,

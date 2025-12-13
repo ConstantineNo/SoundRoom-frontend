@@ -62,9 +62,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeMount } from 'vue'
 import axios from 'axios'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { NGrid, NGridItem, NCard, NButton, NSpace, NTag, NModal, NForm, NFormItem, NInput, useMessage } from 'naive-ui'
 import { useUserStore } from '../stores/user'
 
@@ -74,6 +74,7 @@ const uploading = ref(false)
 const isEditing = ref(false)
 const currentScoreId = ref(null)
 const router = useRouter()
+const route = useRoute()
 const message = useMessage()
 const userStore = useUserStore()
 
@@ -220,6 +221,15 @@ const addToPlaylist = async (scoreId) => {
     message.error('加入列表失败')
   }
 }
+
+onBeforeMount(() => {
+  // 检查是否有权限错误提示
+  if (route.query.error === 'no_admin_permission') {
+    message.warning('您没有访问管理后台的权限')
+    // 清除query参数
+    router.replace({ path: route.path })
+  }
+})
 
 onMounted(() => {
   fetchScores()
