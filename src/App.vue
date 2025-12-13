@@ -9,6 +9,7 @@
               <n-space align="center">
                 <router-link to="/library"><n-button text>曲谱库</n-button></router-link>
                 <router-link v-if="userStore.isLoggedIn" to="/playlist"><n-button text>播放列表</n-button></router-link>
+                <router-link v-if="userStore.isAdmin" to="/dashboard"><n-button text>管理后台</n-button></router-link>
                 <div v-if="userStore.isLoggedIn">
                   <span style="margin-right: 10px;">{{ userStore.username }}</span>
                   <n-button text @click="handleLogout">退出</n-button>
