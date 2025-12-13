@@ -127,13 +127,23 @@ const drawChart = () => {
     ctx.stroke()
   }
 
+  // 计算 x 坐标的辅助函数，处理单个数据点的情况
+  const getXCoordinate = (index) => {
+    if (stats.value.length === 1) {
+      // 只有一个数据点时，放在图表中间
+      return padding + chartWidth / 2
+    }
+    // 多个数据点时，均匀分布
+    return padding + (chartWidth / (stats.value.length - 1)) * index
+  }
+
   // 绘制PV折线
   if (stats.value.length > 0) {
     ctx.strokeStyle = '#18a058'
     ctx.lineWidth = 2
     ctx.beginPath()
     stats.value.forEach((stat, index) => {
-      const x = padding + (chartWidth / (stats.value.length - 1)) * index
+      const x = getXCoordinate(index)
       const y = canvas.height - padding - ((stat.pv || 0) / maxValue) * chartHeight
       if (index === 0) {
         ctx.moveTo(x, y)
@@ -146,7 +156,7 @@ const drawChart = () => {
     // 绘制PV点
     ctx.fillStyle = '#18a058'
     stats.value.forEach((stat, index) => {
-      const x = padding + (chartWidth / (stats.value.length - 1)) * index
+      const x = getXCoordinate(index)
       const y = canvas.height - padding - ((stat.pv || 0) / maxValue) * chartHeight
       ctx.beginPath()
       ctx.arc(x, y, 4, 0, Math.PI * 2)
@@ -160,7 +170,7 @@ const drawChart = () => {
     ctx.lineWidth = 2
     ctx.beginPath()
     stats.value.forEach((stat, index) => {
-      const x = padding + (chartWidth / (stats.value.length - 1)) * index
+      const x = getXCoordinate(index)
       const y = canvas.height - padding - ((stat.uv || 0) / maxValue) * chartHeight
       if (index === 0) {
         ctx.moveTo(x, y)
@@ -173,7 +183,7 @@ const drawChart = () => {
     // 绘制UV点
     ctx.fillStyle = '#2080f0'
     stats.value.forEach((stat, index) => {
-      const x = padding + (chartWidth / (stats.value.length - 1)) * index
+      const x = getXCoordinate(index)
       const y = canvas.height - padding - ((stat.uv || 0) / maxValue) * chartHeight
       ctx.beginPath()
       ctx.arc(x, y, 4, 0, Math.PI * 2)
@@ -186,7 +196,7 @@ const drawChart = () => {
   ctx.font = '12px sans-serif'
   ctx.textAlign = 'center'
   stats.value.forEach((stat, index) => {
-    const x = padding + (chartWidth / (stats.value.length - 1)) * index
+    const x = getXCoordinate(index)
     const date = new Date(stat.date)
     const label = `${date.getMonth() + 1}/${date.getDate()}`
     ctx.fillText(label, x, canvas.height - padding + 20)

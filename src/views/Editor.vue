@@ -9,6 +9,7 @@
         <span class="title">{{ score ? score.title : 'Loading...' }}</span>
       </div>
       <div class="right">
+        <n-button secondary @click="copyPrompt">复制提示词</n-button>
         <n-button type="primary" @click="saveScore" :loading="saving">保存并解析</n-button>
         <div class="view-switcher" style="margin-left: 10px; display: inline-flex; gap: 5px;">
            <n-button size="small" :type="viewMode === 'staff' ? 'primary' : 'default'" @click="viewMode = 'staff'">五线谱</n-button>
@@ -412,6 +413,72 @@ const saveScore = async () => {
     console.error(error)
   } finally {
     saving.value = false
+  }
+}
+
+const copyPrompt = async () => {
+  const promptText = `You are a professional music transcriber specializing in converting Chinese Numbered Musical Notation (Jianpu) into ABC Notation.
+Your task is to extract both the musical notes and the lyrics from the provided image and output strict ABC Notation code.
+Rules:
+Header:
+Extract Title (T:), Composer (C:), Key (K:), Meter (M:), and Tempo (Q:).
+If tempo is not specified, default to Q:1/4=120.
+If composer is unknown, omit C:.
+Key Mapping (CRITICAL):
+Although the image may say "1=G" or "1=Bb", ALWAYS set the Key to K:C in the output.
+Treat the Jianpu numbers 1, 2, 3 directly as C, D, E. This is to ensure direct mapping.
+Note Mapping:
+Jianpu '1' -> ABC 'C'
+Jianpu '2' -> ABC 'D'
+Jianpu '3' -> ABC 'E'
+Jianpu '4' -> ABC 'F', '5' -> 'G', '6' -> 'A', '7' -> 'B'.
+Jianpu '0' -> ABC 'z' (Rest).
+Octaves & Durations:
+High Octave: Number with dot above -> lowercase (e.g., c, d).
+Low Octave: Number with dot below -> Uppercase with comma (e.g., C,, D,).
+Rhythm: Ensure the duration of notes matches the underlines and dots in the image.
+Formatting:
+Use | for bar lines.
+Ensure the total duration of notes in each bar matches the Meter (M:).
+Break lines logically (e.g., every 4 bars).
+Lyrics (w:) - NEW REQUIREMENT:
+You MUST transcribe the Chinese lyrics found below the staff.
+Placement: Insert a w: line immediately below each line of note code it corresponds to. Do not group all lyrics at the end.
+Alignment:
+Separate every single Chinese character with a space (e.g., w: 我 爱 北 京).
+This ensures one character aligns with one note.
+Melisma: If a character extends over multiple notes (slurs), use _ or spaces correctly, but prioritizing "Space-separated characters" is usually safest for alignment.
+Skip Rests: Do not put lyrics under z (rests).
+Output Structure Example:
+T: Title
+M: 4/4
+L: 1/8
+K: C
+C2 D2 E2 C2 | E2 F2 G4 |
+w: 两 只 老 虎 跑 得 快
+G2 A2 G2 F2 | E2 C2 C4 |
+w: 真 的 非 常 奇 怪 _
+Output Format:
+Return ONLY the ABC code block. Do not provide explanations.`
+
+  try {
+    await navigator.clipboard.writeText(promptText)
+    message.success('提示词已复制到剪贴板！请使用豆包上传简谱图片，将得到的乐谱粘贴到编辑器中')
+  } catch (error) {
+    // 降级方案：使用传统方法
+    const textArea = document.createElement('textarea')
+    textArea.value = promptText
+    textArea.style.position = 'fixed'
+    textArea.style.opacity = '0'
+    document.body.appendChild(textArea)
+    textArea.select()
+    try {
+      document.execCommand('copy')
+      message.success('提示词已复制到剪贴板！请使用豆包上传简谱，将得到的乐谱粘贴到编辑器中')
+    } catch (err) {
+      message.error('复制失败，请手动复制')
+    }
+    document.body.removeChild(textArea)
   }
 }
 
