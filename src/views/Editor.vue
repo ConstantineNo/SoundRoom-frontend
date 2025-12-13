@@ -103,6 +103,7 @@ const viewMode = ref('staff') // 'staff' | 'jianpu'
 const visualObj = ref(null)
 const activeNoteIds = ref([]) // IDs of notes currently playing
 const measureIssues = ref([]) // 小节时值问题
+const tuneDuration = ref(1) // 总时长，用于计算跳转位置
 
 let synthControl = null
 // 建立 SVG 元素到 _myId 的映射
@@ -180,6 +181,16 @@ const handleSeekToNote = (data) => {
     return
   }
   
+  // 修复：优先使用 absoluteTime 计算 timePercent，更准确
+  if (data.absoluteTime !== undefined && tuneDuration.value > 0) {
+    const calculatedTimePercent = data.absoluteTime / tuneDuration.value
+    if (calculatedTimePercent >= 0 && calculatedTimePercent <= 1) {
+      console.log('[Editor] 使用 absoluteTime 计算的 timePercent:', calculatedTimePercent, 'absoluteTime:', data.absoluteTime, 'tuneDuration:', tuneDuration.value)
+      synthControl.seek(calculatedTimePercent, "percent")
+      return
+    }
+  }
+  
   // 尝试使用 abcjs 原生的 timing 信息
   const noteId = data.noteId
   const abcjsTiming = noteIdToTimingMap.get(noteId)
@@ -187,16 +198,16 @@ const handleSeekToNote = (data) => {
   if (abcjsTiming && abcjsTiming.midiPitches && abcjsTiming.midiPitches[0]) {
     // abcjs midiPitches 包含 start (秒) 和 duration (秒)
     const startTimeSeconds = abcjsTiming.midiPitches[0].start
-    if (startTimeSeconds !== undefined) {
+    if (startTimeSeconds !== undefined && startTimeSeconds >= 0) {
       console.log('[Editor] 使用 abcjs midiPitches.start:', startTimeSeconds)
       synthControl.seek(startTimeSeconds, "seconds")
       return
     }
   }
   
-  // 回退到使用 timePercent
+  // 回退到使用传入的 timePercent
   if (data.timePercent !== undefined && data.timePercent >= 0 && data.timePercent <= 1) {
-    console.log('[Editor] 回退使用 timePercent:', data.timePercent)
+    console.log('[Editor] 回退使用传入的 timePercent:', data.timePercent)
     synthControl.seek(data.timePercent, "percent")
   } else {
     console.warn('[Editor] timePercent 无效:', data.timePercent)
@@ -325,8 +336,18 @@ const renderAbc = debounce(async () => {
            }
        })
        visualObj.value = tune[0]
+       
+       // 计算总时长
+       let totalDur = 0
+       tune[0].lines.forEach(line => {
+         if (line.staff) line.staff.forEach(s => s.voices.forEach(v => v.forEach(el => {
+           if (el.el_type === 'note' && el.duration) totalDur += el.duration
+         })))
+       })
+       tuneDuration.value = totalDur || 1
     } else {
         visualObj.value = null
+        tuneDuration.value = 1
     }
 
     // 2. 检查是否生成了有效的乐谱对象

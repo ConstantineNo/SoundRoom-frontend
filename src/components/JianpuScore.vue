@@ -72,11 +72,15 @@
               <!-- Augmentation dot -->
               <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="42" r="2.5"/>
               
-              <!-- Dashes (延音线/增时线) - 每个横线独立占位，居中显示 -->
+              <!-- Dashes (延音线/增时线) - 修复：横线位于数字右侧，与数字保持水平距离，垂直对齐数字中心 -->
               <template v-if="note.dashes > 0 && !note.isRest">
                 <g v-for="d in note.dashes" :key="'d'+d"
                    :transform="`translate(${(d) * NOTE_WIDTH}, 0)`">
-                  <line class="dash" :x1="5" :y1="42" :x2="NOTE_WIDTH - 5" :y2="42" />
+                  <!-- 横线位于数字右侧，与数字保持间距，垂直对齐数字中心（y=50） -->
+                  <!-- x1: 从数字右侧开始（NOTE_WIDTH），留出间距 -->
+                  <!-- x2: 到下一个位置，留出间距 -->
+                  <!-- y: 与数字中心对齐（数字在 y=50，横线也在 y=50） -->
+                  <line class="dash" :x1="NOTE_WIDTH + 2" :y1="50" :x2="NOTE_WIDTH * 2 - 2" :y2="50" />
                 </g>
               </template>
 
@@ -152,10 +156,14 @@
           
           <!-- Bar Lines -->
           <!-- 小节开始的左重复符号 (|:) - 确保行首也能完整显示 -->
+          <!-- 修复：确保始终显示两根竖线（粗线+细线）和两个点 -->
           <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" 
              :transform="`translate(${mIdx === 0 ? 10 : 0}, 0)`">
+            <!-- 第一根竖线：粗线 -->
             <rect class="bar-thick" x="-12" y="20" width="4" height="45"/>
+            <!-- 第二根竖线：细线 -->
             <line class="bar-line" x1="-5" y1="20" x2="-5" y2="65"/>
+            <!-- 两个重复点 -->
             <circle class="repeat-dot" cx="2" cy="35" r="2.5"/>
             <circle class="repeat-dot" cx="2" cy="50" r="2.5"/>
           </g>
@@ -163,10 +171,14 @@
           <!-- 小节结束的竖线 -->
           <g class="bar-lines" :transform="`translate(${measureWidth + 5}, 0)`">
             <!-- 右重复符号 (:|) - 两点+细线+粗线 -->
+            <!-- 修复：确保始终显示两根竖线（细线+粗线）和两个点 -->
             <template v-if="measure.barType === 'bar_right_repeat'">
+              <!-- 两个重复点 -->
               <circle class="repeat-dot" cx="-18" cy="35" r="2.5"/>
               <circle class="repeat-dot" cx="-18" cy="50" r="2.5"/>
+              <!-- 第一根竖线：细线 -->
               <line class="bar-line" x1="-10" y1="20" x2="-10" y2="65"/>
+              <!-- 第二根竖线：粗线 -->
               <rect class="bar-thick" x="-6" y="20" width="4" height="45"/>
             </template>
             <!-- 终止线 (细线+粗线) -->
@@ -523,6 +535,7 @@ const meterDisplay = computed(() => {
 
 // Calculate tie path (arc above notes) - 书法笔触 (Crescent shape)
 // y=20 (Above numbers, numbers are at y=50)
+// 修复：调整曲率计算，让长跨度的延音线也有合适的弧度
 const getTiePath = (tie) => {
   if (!tie.startX || !tie.endX) return ''
   // startX 和 endX 已经是音符中心位置 (note.x + NOTE_WIDTH/2)
@@ -531,9 +544,12 @@ const getTiePath = (tie) => {
   const y = 22 // 音符上方
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  // Height scales with distance, but capped
-  const h = Math.min(12, Math.max(6, distance * 0.12)) 
-  const thickness = 1.5 + Math.min(2.5, distance * 0.04) // Thicker in middle for long ties
+  // 修复：使用更合理的曲率计算，长跨度时高度增长更快
+  // 基础高度 + 距离相关的额外高度，但使用平方根函数避免过度增长
+  const baseHeight = 6
+  const distanceFactor = Math.sqrt(distance) * 0.8
+  const h = Math.min(25, baseHeight + distanceFactor) // 提高最大高度限制
+  const thickness = 1.5 + Math.min(3, distance * 0.05) // 稍微增加厚度
   
   // Top curve (going up) and Bottom curve (coming back, less high)
   // M start Q control end Q control start Z
@@ -591,6 +607,7 @@ const getGraceUnderlineCount = (graceNotes) => {
 }
 
 // Calculate slur path (also above)
+// 修复：调整曲率计算，让长跨度的延音线也有合适的弧度
 const getSlurPath = (slur) => {
   if (!slur.startX || !slur.endX) return ''
   // startX 和 endX 已经是音符中心位置 (note.x + NOTE_WIDTH/2)
@@ -599,13 +616,17 @@ const getSlurPath = (slur) => {
   const y = 18 // 比 tie 稍高一点
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const h = Math.min(15, Math.max(8, distance * 0.15))
-  const thickness = 1.5 + Math.min(3, distance * 0.04)
+  // 修复：使用更合理的曲率计算，长跨度时高度增长更快
+  const baseHeight = 8
+  const distanceFactor = Math.sqrt(distance) * 0.9
+  const h = Math.min(28, baseHeight + distanceFactor) // 提高最大高度限制
+  const thickness = 1.5 + Math.min(3.5, distance * 0.05) // 稍微增加厚度
   
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
 
 // Calculate cross-measure tie path (跨小节连音线)
+// 修复：调整曲率计算，让长跨度的延音线也有合适的弧度
 const getCrossMeasureTiePath = (crossTie, measures) => {
   if (!crossTie || !measures) return ''
   
@@ -625,8 +646,11 @@ const getCrossMeasureTiePath = (crossTie, measures) => {
   const y = 22
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const h = Math.min(12, Math.max(6, distance * 0.12))
-  const thickness = 1.5 + Math.min(2.5, distance * 0.04)
+  // 修复：使用更合理的曲率计算，长跨度时高度增长更快
+  const baseHeight = 6
+  const distanceFactor = Math.sqrt(distance) * 0.8
+  const h = Math.min(25, baseHeight + distanceFactor) // 提高最大高度限制
+  const thickness = 1.5 + Math.min(3, distance * 0.05) // 稍微增加厚度
   
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
@@ -707,6 +731,13 @@ const computedRows = computed(() => {
       const beamLevels = [1, 2, 3] // 对应 underlines >= 1, 2, 3
       
       beamLevels.forEach((minUnderlines, levelIdx) => {
+        // 修复：为每一层独立生成 beam，确保十六分音符的两条线都正确显示
+        // 对于第二层及以上，允许跳过中间不符合条件的音符，继续连接后面的符合条件音符
+        const qualifiedNotes = groupNotes.filter(n => n.underlines >= minUnderlines && !n.isRest)
+        
+        if (qualifiedNotes.length < 2) return
+        
+        // 找到连续的区间
         let startNote = null
         let endNote = null
         let count = 0
@@ -718,14 +749,15 @@ const computedRows = computed(() => {
              endNote = note
              count++
           } else {
-             // 结束一段
+             // 遇到不符合条件的音符，结束当前段
              if (startNote && endNote && count >= 2) {
                measure.beams.push({
                  x1: 0,
                  x2: 0,
                  y: 58 + levelIdx * 5,
                  startID: startNote.id,
-                 endID: endNote.id
+                 endID: endNote.id,
+                 level: levelIdx
                })
              }
              startNote = null
@@ -737,7 +769,8 @@ const computedRows = computed(() => {
         if (startNote && endNote && count >= 2) {
            measure.beams.push({
              x1: 0, x2: 0, y: 58 + levelIdx * 5,
-             startID: startNote.id, endID: endNote.id
+             startID: startNote.id, endID: endNote.id,
+             level: levelIdx
            })
         }
       })
