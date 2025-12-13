@@ -72,43 +72,47 @@
               <!-- Augmentation dot -->
               <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="42" r="2.5"/>
               
-              <!-- Dashes (延音线/增时线) - 横线在数字右侧，与数字中心垂直对齐 -->
+              <!-- Dashes (延音线/增时线) - 每个横线独立占位，居中显示 -->
               <template v-if="note.dashes > 0 && !note.isRest">
-                <line v-for="d in note.dashes" :key="'d'+d" class="dash"
-                  :x1="NOTE_WIDTH + 2 + (d-1)*DASH_WIDTH" :y1="42" :x2="NOTE_WIDTH + DASH_WIDTH - 5 + (d-1)*DASH_WIDTH" :y2="42" />
+                <g v-for="d in note.dashes" :key="'d'+d"
+                   :transform="`translate(${(d) * NOTE_WIDTH}, 0)`">
+                  <line class="dash" :x1="5" :y1="42" :x2="NOTE_WIDTH - 5" :y2="42" />
+                </g>
               </template>
 
               <!-- Lyric -->
               <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
               
-              <!-- Grace notes group (倚音组，显示在主音符左上角) -->
-              <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container"
-                 :transform="`translate(${-note.graceNotes.length * 14 - 5}, 0)`">
-                <!-- 倚音弧线 -->
+              <!-- Grace notes group (倚音组，显示在主音符左上角，微型字符上标样式) -->
+              <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container">
+                <!-- 倚音到主音的连接弧线 -->
+                <path class="grace-to-main-slur" 
+                  :d="getGraceToMainSlurPath(note.graceNotes.length)" />
+                <!-- 倚音组内部弧线（多个倚音时） -->
                 <path v-if="note.graceNotes.length > 1" class="grace-slur" 
-                  :d="getGraceSlurPath(note.graceNotes, note.graceNotes.length)" />
+                  :d="getGraceGroupSlurPath(note.graceNotes.length)" />
                 <!-- 三连音标记 -->
                 <text v-if="note.graceNotes.length === 3" class="grace-triplet-mark"
-                  :x="(note.graceNotes.length * 14) / 2" y="8">3</text>
-                <!-- 每个倚音 -->
+                  :x="-note.graceNotes.length * 5" y="12">3</text>
+                <!-- 每个倚音 (微型字符，约50%) -->
                 <g v-for="(grace, gIdx) in note.graceNotes" :key="'g'+gIdx"
-                   :transform="`translate(${gIdx * 14}, 0) scale(0.55)`">
+                   :transform="`translate(${-((note.graceNotes.length - gIdx) * 10) - 2}, -8)`">
                   <!-- 高八度点 -->
-                  <template v-if="grace.highDots > 0">
-                    <circle v-for="d in grace.highDots" :key="'gh'+d" class="octave-dot" :cx="10" :cy="20 - (d-1)*6" r="2" />
-                  </template>
-                  <!-- 音符数字 -->
-                  <text class="note-number grace-number" x="10" y="42">{{ grace.number }}</text>
+                  <circle v-if="grace.highDots > 0" class="grace-octave-dot" :cx="5" :cy="18" r="1.5" />
+                  <!-- 音符数字 (微型) -->
+                  <text class="grace-note-number" x="5" y="32">{{ grace.number }}</text>
                   <!-- 低八度点 -->
-                  <template v-if="grace.lowDots > 0">
-                    <circle v-for="d in grace.lowDots" :key="'gl'+d" class="octave-dot" :cx="10" :cy="50 + (d-1)*6" r="2" />
-                  </template>
-                  <!-- 下划线 -->
-                  <template v-if="grace.underlines > 0">
-                    <line v-for="u in grace.underlines" :key="'gu'+u" class="underline" 
-                      :x1="0" :y1="50 + (u-1)*4" :x2="20" :y2="50 + (u-1)*4" />
-                  </template>
+                  <circle v-if="grace.lowDots > 0" class="grace-octave-dot" :cx="5" :cy="38" r="1.5" />
                 </g>
+                <!-- 倚音组共享的微型下划线 (减时线) -->
+                <template v-if="getGraceUnderlineCount(note.graceNotes) > 0">
+                  <line v-for="u in getGraceUnderlineCount(note.graceNotes)" :key="'gu'+u" 
+                    class="grace-underline"
+                    :x1="-note.graceNotes.length * 10 - 2"
+                    :y1="28 + (u-1)*3"
+                    :x2="-4"
+                    :y2="28 + (u-1)*3" />
+                </template>
               </g>
             </template>
             
@@ -147,12 +151,13 @@
           </template>
           
           <!-- Bar Lines -->
-          <!-- 小节开始的左重复符号 (|:) -->
-          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" transform="translate(-2, 0)">
-            <rect class="bar-thick" x="-8" y="20" width="4" height="45"/>
-            <line class="bar-line" x1="-1" y1="20" x2="-1" y2="65"/>
-            <circle class="repeat-dot" cx="6" cy="35" r="2.5"/>
-            <circle class="repeat-dot" cx="6" cy="50" r="2.5"/>
+          <!-- 小节开始的左重复符号 (|:) - 确保行首也能完整显示 -->
+          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" 
+             :transform="`translate(${mIdx === 0 ? 10 : 0}, 0)`">
+            <rect class="bar-thick" x="-12" y="20" width="4" height="45"/>
+            <line class="bar-line" x1="-5" y1="20" x2="-5" y2="65"/>
+            <circle class="repeat-dot" cx="2" cy="35" r="2.5"/>
+            <circle class="repeat-dot" cx="2" cy="50" r="2.5"/>
           </g>
           
           <!-- 小节结束的竖线 -->
@@ -535,20 +540,54 @@ const getTiePath = (tie) => {
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
 
-// Calculate grace notes slur path (倚音弧线)
+// Calculate grace notes slur path (倚音弧线) - deprecated
 const getGraceSlurPath = (graceNotes, count) => {
   if (!graceNotes || graceNotes.length < 2) return ''
-  // 倚音组的弧线，跨越所有倚音 (倚音宽度 14px * 0.55 scale = ~7.7px)
   const graceWidth = 14
-  const startX = 5 // 第一个倚音的中心 (缩放后)
-  const endX = 5 + (count - 1) * graceWidth // 最后一个倚音的中心
-  const y = 18 // 倚音上方
+  const startX = 5
+  const endX = 5 + (count - 1) * graceWidth
+  const y = 18
   const midX = (startX + endX) / 2
   const distance = Math.abs(endX - startX)
   const h = Math.min(8, Math.max(4, distance * 0.25))
   const thickness = 1.2
   
   return `M ${startX} ${y} Q ${midX} ${y - h} ${endX} ${y} Q ${midX} ${y - h + thickness} ${startX} ${y} Z`
+}
+
+// 倚音到主音符的连接弧线
+const getGraceToMainSlurPath = (graceCount) => {
+  // 从倚音组的末尾连接到主音符
+  const startX = -4  // 最后一个倚音右侧
+  const endX = 10    // 主音符左侧
+  const y = 25       // 基线位置
+  const midX = (startX + endX) / 2
+  const h = 8
+  const thickness = 1.0
+  
+  return `M ${startX} ${y} Q ${midX} ${y - h} ${endX} ${y} Q ${midX} ${y - h + thickness} ${startX} ${y} Z`
+}
+
+// 倚音组内部的弧线（多个倚音时使用）
+const getGraceGroupSlurPath = (graceCount) => {
+  if (graceCount < 2) return ''
+  const graceSpacing = 10
+  const startX = -graceCount * graceSpacing - 2 + 5  // 第一个倚音中心
+  const endX = -2 - 5  // 最后一个倚音中心
+  const y = 10
+  const midX = (startX + endX) / 2
+  const distance = Math.abs(endX - startX)
+  const h = Math.min(6, Math.max(3, distance * 0.3))
+  const thickness = 0.8
+  
+  return `M ${startX} ${y} Q ${midX} ${y - h} ${endX} ${y} Q ${midX} ${y - h + thickness} ${startX} ${y} Z`
+}
+
+// 获取倚音组应该显示的下划线数量（取最大值）
+const getGraceUnderlineCount = (graceNotes) => {
+  if (!graceNotes || graceNotes.length === 0) return 0
+  // 取所有倚音中下划线数量的最大值
+  return Math.max(...graceNotes.map(g => g.underlines || 0))
 }
 
 // Calculate slur path (also above)
@@ -1173,18 +1212,44 @@ const svgHeight = computed(() => {
   pointer-events: none; /* 倚音不响应点击 */
 }
 
-.grace-number {
-  font-size: 22px;
+/* 微型倚音数字 (约50%大小) */
+.grace-note-number {
+  font-size: 14px;
+  font-family: 'JianpuPoints', 'Times New Roman', serif;
+  font-weight: normal;
+  fill: #000;
+  text-anchor: middle;
+}
+
+/* 倚音八度点 */
+.grace-octave-dot {
   fill: #000;
 }
 
+/* 倚音组共享的微型下划线 */
+.grace-underline {
+  stroke: #000;
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+/* 倚音到主音的连接弧线 */
+.grace-to-main-slur {
+  fill: #000;
+  stroke: none;
+  opacity: 0.9;
+}
+
+/* 倚音组内部弧线 */
 .grace-slur {
   fill: #000;
   stroke: none;
+  opacity: 0.9;
 }
 
+/* 倚音三连音标记 */
 .grace-triplet-mark {
-  font-size: 12px;
+  font-size: 9px;
   font-style: italic;
   font-weight: bold;
   fill: #000;

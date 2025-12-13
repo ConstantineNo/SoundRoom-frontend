@@ -106,6 +106,8 @@ const measureIssues = ref([]) // 小节时值问题
 let synthControl = null
 // 建立 SVG 元素到 _myId 的映射
 const elemToIdMap = new Map()
+// 建立 noteId 到 abcjs 原生时间信息的映射
+const noteIdToTimingMap = new Map()
 
 // Computed: 代码行
 const codeLines = computed(() => abcCode.value.split('\n'))
@@ -177,11 +179,23 @@ const handleSeekToNote = (data) => {
     return
   }
   
-  // data 包含 { noteId, timePercent, absoluteTime }
-  // synthControl.seek 接受百分比 (0-1) 并需要指定 "percent" 作为单位
+  // 尝试使用 abcjs 原生的 timing 信息
+  const noteId = data.noteId
+  const abcjsTiming = noteIdToTimingMap.get(noteId)
+  
+  if (abcjsTiming && abcjsTiming.midiPitches && abcjsTiming.midiPitches[0]) {
+    // abcjs midiPitches 包含 start (秒) 和 duration (秒)
+    const startTimeSeconds = abcjsTiming.midiPitches[0].start
+    if (startTimeSeconds !== undefined) {
+      console.log('[Editor] 使用 abcjs midiPitches.start:', startTimeSeconds)
+      synthControl.seek(startTimeSeconds, "seconds")
+      return
+    }
+  }
+  
+  // 回退到使用 timePercent
   if (data.timePercent !== undefined && data.timePercent >= 0 && data.timePercent <= 1) {
-    console.log('[Editor] 执行 seek, timePercent:', data.timePercent)
-    // 使用 "percent" 参数确保以百分比方式seek
+    console.log('[Editor] 回退使用 timePercent:', data.timePercent)
     synthControl.seek(data.timePercent, "percent")
   } else {
     console.warn('[Editor] timePercent 无效:', data.timePercent)
@@ -276,6 +290,8 @@ const renderAbc = debounce(async () => {
     // Inject IDs into visual object for mapping and build SVG element map
     if (tune && tune[0]) {
        let uid = 0;
+       noteIdToTimingMap.clear() // 清空旧映射
+       
        tune[0].lines.forEach(line => {
            if (line.staff) {
                line.staff.forEach(staff => {
@@ -283,6 +299,15 @@ const renderAbc = debounce(async () => {
                        voice.forEach(el => {
                            const myId = `note_${uid++}`
                            el._myId = myId
+                           
+                           // 保存 abcjs 的 timing 信息，用于点击跳转
+                           if (el.midiPitches || el.startTiming !== undefined) {
+                             noteIdToTimingMap.set(myId, {
+                               midiPitches: el.midiPitches,
+                               startTiming: el.startTiming,
+                               duration: el.duration
+                             })
+                           }
                            
                            // 建立 SVG 元素到 _myId 的映射
                            // abcjs 在每个元素上存储了 abselem，其中包含 SVG 元素引用
