@@ -719,7 +719,12 @@ const computedRows = computed(() => {
              count++
           } else {
              // 结束一段
-             if (startNote && endNote && count >= 2) {
+             // 修复：第一级符杠需要 count >= 2，第二级及以上允许单个音符（只要拍分组里有多个音符）
+             const shouldDrawBeam = levelIdx === 0 
+               ? (count >= 2)  // 第一级：需要两个或以上音符
+               : (count >= 1 && groupNotes.length >= 2)  // 第二级及以上：允许单个音符，但拍分组里必须有多个音符
+             
+             if (startNote && endNote && shouldDrawBeam) {
                measure.beams.push({
                  x1: 0,
                  x2: 0,
@@ -734,7 +739,11 @@ const computedRows = computed(() => {
           }
         }
         // 尾部检查
-        if (startNote && endNote && count >= 2) {
+        const shouldDrawBeam = levelIdx === 0 
+          ? (count >= 2)  // 第一级：需要两个或以上音符
+          : (count >= 1 && groupNotes.length >= 2)  // 第二级及以上：允许单个音符，但拍分组里必须有多个音符
+        
+        if (startNote && endNote && shouldDrawBeam) {
            measure.beams.push({
              x1: 0, x2: 0, y: 58 + levelIdx * 5,
              startID: startNote.id, endID: endNote.id
