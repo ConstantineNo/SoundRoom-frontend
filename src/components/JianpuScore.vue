@@ -65,42 +65,42 @@
               <template v-if="!note.isGrace">
                 <!-- Highlight -->
                 <rect v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId))"
-                  class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55" />
+                  class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || config.NOTE_WIDTH) + 10" :height="55" />
                 
                 <!-- Accidental -->
                 <text v-if="note.accidental" class="accidental" :x="-2" y="48">{{ note.accidental }}</text>
                 
                 <!-- High octave dots -->
                 <template v-if="note.highDots > 0">
-                  <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="24 - (d-1)*7" r="2.5" />
+                  <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="config.NOTE_WIDTH / 2" :cy="24 - (d-1)*7" r="2.5" />
                 </template>
                 
                 <!-- Main number -->
-                <text class="note-number" :class="{ 'is-rest': note.isRest }" x="15" y="50">{{ note.number }}</text>
+                <text class="note-number" :class="{ 'is-rest': note.isRest }" :x="config.NOTE_WIDTH / 2" y="50">{{ note.number }}</text>
 
                 <!-- Low octave dots -->
                 <template v-if="note.lowDots > 0">
-                  <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*7 + (note.hasBeam ? 12 : note.underlines * 5)" r="2.5" />
+                  <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="config.NOTE_WIDTH / 2" :cy="60 + (d-1)*7 + (note.hasBeam ? 12 : note.underlines * 5)" r="2.5" />
                 </template>
                 
                 <!-- Underlines (only if NOT beamed) -->
                 <template v-if="!note.hasBeam && note.underlines > 0">
-                  <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="58 + (u-1)*5" :x2="27" :y2="58 + (u-1)*5" />
+                  <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="2" :y1="58 + (u-1)*5" :x2="config.NOTE_WIDTH - 2" :y2="58 + (u-1)*5" />
                 </template>
                 
                 <!-- Augmentation dot -->
-                <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="42" r="2.5"/>
+                <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="config.NOTE_WIDTH - 2" :cy="42" r="2.5"/>
                 
                 <!-- Dashes (延音线/增时线) - 每个横线独立占位，居中显示 -->
                 <template v-if="note.dashes > 0 && !note.isRest">
                   <g v-for="d in note.dashes" :key="'d'+d"
-                     :transform="`translate(${(d) * NOTE_WIDTH}, 0)`">
-                    <line class="dash" :x1="5" :y1="42" :x2="NOTE_WIDTH - 5" :y2="42" />
+                     :transform="`translate(${(d) * config.NOTE_WIDTH}, 0)`">
+                    <line class="dash" :x1="4" :y1="42" :x2="config.NOTE_WIDTH - 4" :y2="42" />
                   </g>
                 </template>
 
                 <!-- Lyric -->
-                <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
+                <text v-if="note.lyric" class="lyric-text" :x="config.NOTE_WIDTH / 2" y="90">{{ note.lyric }}</text>
                 
                 <!-- Grace notes group (倚音组，显示在主音符左上角，微型字符上标样式) -->
                 <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container">
@@ -255,27 +255,53 @@ const onNoteClick = (note) => {
 }
 
 // Layout constants
-const NOTE_WIDTH = 30  // 音符基础宽度
-const DASH_WIDTH = 30  // 延音线占位宽度（与数字一致）
-const MEASURE_PADDING = 20
-const rowHeight = 110  // 调整行高，给歌词留空间
-const BEAT_GAP = 18 // 拍间额外间距
+const isMobile = computed(() => containerWidth.value < 500) // Threshold for mobile layout
+
+const config = computed(() => {
+  if (isMobile.value) {
+    return {
+      NOTE_WIDTH: 26,
+      DASH_WIDTH: 26,
+      MEASURE_PADDING: 8,
+      BEAT_GAP: 8,
+      ROW_HEIGHT: 90,
+      MIN_MEASURE_WIDTH: 140,
+      MEASURE_GAP: 0
+    }
+  } else {
+    return {
+      NOTE_WIDTH: 30,
+      DASH_WIDTH: 30,
+      MEASURE_PADDING: 20,
+      BEAT_GAP: 18,
+      ROW_HEIGHT: 110,
+      MIN_MEASURE_WIDTH: 240,
+      MEASURE_GAP: 15
+    }
+  }
+})
 
 // Dynamic Layout
 const containerWidth = ref(1100) // Default fallback
-const MIN_MEASURE_WIDTH = 240 // Minimum width for a measure to be readable
 
 const measuresPerRow = computed(() => {
   // Ensure at least 1 measure per row
-  const count = Math.floor((containerWidth.value - 40) / MIN_MEASURE_WIDTH)
+  // Mobile padding is smaller (e.g. 10px * 2 = 20px), Desktop is 30px * 2 = 60px
+  const padding = isMobile.value ? 0 : 60
+  const count = Math.floor((containerWidth.value - padding) / config.value.MIN_MEASURE_WIDTH)
   return Math.max(1, count)
 })
 
 const measureWidth = computed(() => {
-  // Calculate width based on container and measures per row
-  // Subtract some padding for the container itself (e.g. 40px total horizontal padding)
-  const available = Math.max(MIN_MEASURE_WIDTH, containerWidth.value - 40)
-  return Math.floor(available / measuresPerRow.value)
+  const gap = config.value.MEASURE_GAP
+  // We reserve space for margins (left/right) and gaps
+  // The svgWidth formula is roughly: measures * (w + gap)
+  // We want svgWidth <= containerWidth
+  const padding = isMobile.value ? 2 : 40 // Extra safety margin inside SVG only for desktop
+  const availablePerMeasure = (containerWidth.value - padding) / measuresPerRow.value
+  const w = Math.floor(availablePerMeasure - gap)
+  
+  return Math.max(config.value.MIN_MEASURE_WIDTH, w)
 })
 
 // Resize Observer
@@ -410,7 +436,7 @@ const splitRestIntoQuarters = (duration, elId, noteCount) => {
       dashes: 0,
       underlines: 0,
       augDot: false,
-      width: NOTE_WIDTH,
+      width: config.value.NOTE_WIDTH,
       duration: quarterDuration
     })
     remaining -= quarterDuration
@@ -429,7 +455,7 @@ const splitRestIntoQuarters = (duration, elId, noteCount) => {
       lowDots: 0, 
       accidental: null,
       ...rhythm,
-      width: NOTE_WIDTH,
+      width: config.value.NOTE_WIDTH,
       duration: remaining
     })
   }
@@ -440,11 +466,11 @@ const splitRestIntoQuarters = (duration, elId, noteCount) => {
 // Calculate appropriate width for each note based on its properties
 const getNoteDisplayWidth = (note) => {
   // Base width for the note digit
-  let width = NOTE_WIDTH
+  let width = config.value.NOTE_WIDTH
   
   // Add width for dashes (延音线) - 每条延音线占位与数字宽度一致
   if (note.dashes > 0) {
-    width += note.dashes * DASH_WIDTH
+    width += note.dashes * config.value.DASH_WIDTH
   }
   
   // 附点不额外占宽度，它在数字右侧
@@ -458,7 +484,7 @@ const layoutMeasureNotes = (measure) => {
   if (!measure.notes || measure.notes.length === 0) return
   
   // 动态计算起始内边距
-  let startPadding = MEASURE_PADDING
+  let startPadding = config.value.MEASURE_PADDING
   // 如果有前括号，需要更多空间避免重叠
   if (measure.hasBracketStart) {
     if (measure.startBarType === 'bar_left_repeat') {
@@ -468,14 +494,14 @@ const layoutMeasureNotes = (measure) => {
     }
   }
   
-  const availableWidth = measureWidth.value - startPadding - MEASURE_PADDING
+  const availableWidth = measureWidth.value - startPadding - config.value.MEASURE_PADDING
   
   // 首先按拍分组
   const beatGroups = {}
   measure.notes.forEach((note, idx) => {
     // Grace notes are smaller
     if (note.isGrace) {
-      note.displayWidth = NOTE_WIDTH * 0.6
+      note.displayWidth = config.value.NOTE_WIDTH * 0.6
     } else {
       note.displayWidth = getNoteDisplayWidth(note)
     }
@@ -503,7 +529,7 @@ const layoutMeasureNotes = (measure) => {
   })
   
   // 计算拍间间隙总量
-  const totalBeatGaps = (numBeats > 1) ? (numBeats - 1) * BEAT_GAP : 0
+  const totalBeatGaps = (numBeats > 1) ? (numBeats - 1) * config.value.BEAT_GAP : 0
   const totalNeeded = totalMinWidth + totalBeatGaps
   
   // 计算缩放因子
@@ -522,7 +548,7 @@ const layoutMeasureNotes = (measure) => {
     
     // 拍间增加间隙
     if (i < numBeats - 1) {
-      currentX += BEAT_GAP * scaleFactor
+      currentX += config.value.BEAT_GAP * scaleFactor
     }
   })
   
@@ -531,8 +557,8 @@ const layoutMeasureNotes = (measure) => {
     const startNote = measure.notes[tie.startIdx]
     const endNote = measure.notes[tie.endIdx]
     if (startNote && endNote) {
-      tie.startX = startNote.x + NOTE_WIDTH / 2
-      tie.endX = endNote.x + NOTE_WIDTH / 2
+      tie.startX = startNote.x + config.value.NOTE_WIDTH / 2
+      tie.endX = endNote.x + config.value.NOTE_WIDTH / 2
     }
   })
   
@@ -542,8 +568,8 @@ const layoutMeasureNotes = (measure) => {
       const startNote = measure.notes[slur.startIdx]
       const endNote = measure.notes[slur.endIdx]
       if (startNote && endNote) {
-        slur.startX = startNote.x + NOTE_WIDTH / 2
-        slur.endX = endNote.x + NOTE_WIDTH / 2
+        slur.startX = startNote.x + config.value.NOTE_WIDTH / 2
+        slur.endX = endNote.x + config.value.NOTE_WIDTH / 2
       }
     })
   }
@@ -562,7 +588,7 @@ const layoutMeasureNotes = (measure) => {
         startIdx: tripletStart,
         endIdx: idx,
         startX: measure.notes[tripletStart].x,
-        endX: note.x + NOTE_WIDTH
+        endX: note.x + config.value.NOTE_WIDTH
       })
       inTriplet = false
       tripletStart = -1
@@ -687,8 +713,8 @@ const getCrossMeasureTiePath = (crossTie, measures) => {
   if (!startNote || !endNote) return ''
   
   // Calculate absolute X positions
-  const x1 = startMeasure.x + startNote.x + NOTE_WIDTH / 2
-  const x2 = endMeasure.x + endNote.x + NOTE_WIDTH / 2
+  const x1 = startMeasure.x + startNote.x + config.value.NOTE_WIDTH / 2
+  const x2 = endMeasure.x + endNote.x + config.value.NOTE_WIDTH / 2
   const y = 22
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
@@ -865,8 +891,9 @@ const computedRows = computed(() => {
           // startX: note.x + 5 (数字左边缘)
           // endX: note.x + note.width - 5 (数字右边缘)
           // 数字居中在 x+15, 宽约10-15
+          const nw = config.value.NOTE_WIDTH
           beam.x1 = s.x + 5
-          beam.x2 = e.x + (e.displayWidth > 20 ? 25 : e.displayWidth - 5)
+          beam.x2 = e.x + (e.displayWidth > 20 ? (nw - 5) : e.displayWidth - 5)
           
           // 标记涉及的音符，让它们不要渲染自带的 underline
           for(let k=startIdx; k<=endIdx; k++) {
@@ -1139,7 +1166,7 @@ const computedRows = computed(() => {
   let currentRow = { measures: [], crossMeasureTies: [] }
   allMeasures.forEach((m, idx) => {
     const measureIdxInRow = currentRow.measures.length
-    currentRow.measures.push({ ...m, x: measureIdxInRow * (measureWidth.value + 15), globalMeasureIdx: idx }) // 增加间距
+    currentRow.measures.push({ ...m, x: measureIdxInRow * (measureWidth.value + config.value.MEASURE_GAP), globalMeasureIdx: idx }) // 增加间距
     
     // Check if row is full
     if (currentRow.measures.length >= measuresPerRow.value) {
@@ -1181,14 +1208,17 @@ const computedRows = computed(() => {
   return rows
 })
 
+const rowHeight = computed(() => config.value.ROW_HEIGHT)
+
 const svgWidth = computed(() => {
   if (computedRows.value.length === 0) return 400
   // Width based on measures per row
-  return measuresPerRow.value * (measureWidth.value + 15) + 40
+  const padding = isMobile.value ? 2 : 40
+  return measuresPerRow.value * (measureWidth.value + config.value.MEASURE_GAP) + padding
 })
 
 const svgHeight = computed(() => {
-  return computedRows.value.length * rowHeight + 40
+  return computedRows.value.length * rowHeight.value + 40
 })
 </script>
 
@@ -1197,6 +1227,19 @@ const svgHeight = computed(() => {
   font-family: 'SimSun', 'Songti SC', 'STSong', serif;
   background: #fff;
   padding: 30px;
+}
+
+@media (max-width: 500px) {
+  .jianpu-score {
+    padding: 0px;
+    border: 1px solid #ccc; /* Debug border */
+  }
+  .note-number {
+    font-size: 24px !important;
+  }
+  .lyric-text {
+    font-size: 16px !important;
+  }
 }
 
 @font-face {

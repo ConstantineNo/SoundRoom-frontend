@@ -4,14 +4,20 @@
       <div class="left">
         <n-button secondary @click="$router.push('/library')">
           <template #icon><n-icon><ArrowBack /></n-icon></template>
-          返回列表
+          <span class="btn-text">返回列表</span>
         </n-button>
         <span class="title">{{ score ? score.title : 'Loading...' }}</span>
       </div>
       <div class="right">
-        <n-button secondary @click="copyPrompt">复制提示词</n-button>
-        <n-button type="primary" @click="saveScore" :loading="saving">保存并解析</n-button>
-        <div class="view-switcher" style="margin-left: 10px; display: inline-flex; gap: 5px;">
+        <n-button secondary @click="copyPrompt">
+          <template #icon><n-icon><Copy /></n-icon></template>
+          <span class="btn-text">复制提示词</span>
+        </n-button>
+        <n-button type="primary" @click="saveScore" :loading="saving">
+          <template #icon><n-icon><Save /></n-icon></template>
+          <span class="btn-text">保存并解析</span>
+        </n-button>
+        <div class="view-switcher">
            <n-button size="small" :type="viewMode === 'staff' ? 'primary' : 'default'" @click="viewMode = 'staff'">五线谱</n-button>
            <n-button size="small" :type="viewMode === 'jianpu' ? 'primary' : 'default'" @click="viewMode = 'jianpu'">简谱</n-button>
         </div>
@@ -86,7 +92,7 @@ import abcjs from 'abcjs'
 import 'abcjs/abcjs-audio.css'
 import { useMessage, NButton, NIcon } from 'naive-ui'
 import JianpuScore from '../components/JianpuScore.vue'
-import { ArrowBack } from '@vicons/ionicons5'
+import { ArrowBack, Copy, Save } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
 
 const BREAKPOINT_MOBILE = 600
@@ -549,7 +555,7 @@ const initResizeObserver = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1rem;
+  padding: 0 0.5rem;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -559,7 +565,17 @@ const initResizeObserver = () => {
 .left, .right {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.25rem;
+}
+
+.btn-text {
+  display: none;
+}
+
+.view-switcher {
+  margin-left: 0.25rem;
+  display: inline-flex;
+  gap: 2px;
 }
 
 .title {
@@ -576,7 +592,7 @@ const initResizeObserver = () => {
 }
 
 .pane {
-  padding: 1rem;
+  padding: 2px;
 }
 
 /* Left Pane (Editor) - Mobile: Top part, scrollable but limited height */
@@ -766,6 +782,23 @@ const initResizeObserver = () => {
 
 /* Tablet Breakpoint (>= 768px) */
 @media (min-width: 768px) {
+  .header {
+    padding: 0 1rem;
+  }
+
+  .left, .right {
+    gap: 0.75rem;
+  }
+
+  .btn-text {
+    display: inline;
+  }
+
+  .view-switcher {
+    margin-left: 0.5rem;
+    gap: 5px;
+  }
+
   .title {
     display: block;
   }
@@ -787,6 +820,7 @@ const initResizeObserver = () => {
     flex: 1;
     height: auto;
     min-height: calc(100vh - 60px);
+    padding: 1rem;
   }
 }
 

@@ -19,7 +19,7 @@
                 </div>
               </n-space>
             </n-layout-header>
-            <n-layout-content content-style="padding: 24px; flex: 1;">
+            <n-layout-content :content-style="{ padding: isFullWidthPage ? '0' : '24px', flex: 1 }">
               <router-view />
             </n-layout-content>
             <n-layout-footer bordered style="padding: 10px; text-align: center;">
@@ -44,6 +44,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { 
   NConfigProvider, 
   NMessageProvider, 
@@ -57,10 +58,15 @@ import {
   NButton 
 } from 'naive-ui'
 import { useUserStore } from './stores/user'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 
 const userStore = useUserStore()
 const router = useRouter()
+const route = useRoute()
+
+const isFullWidthPage = computed(() => {
+  return route.path.startsWith('/editor') || route.path.startsWith('/practice')
+})
 
 const handleLogout = () => {
   userStore.logout()
