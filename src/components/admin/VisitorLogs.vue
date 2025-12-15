@@ -25,6 +25,7 @@
 import { ref, onMounted, h } from 'vue'
 import { NH2, NSpace, NDataTable, NCard, NAlert, NButton, NTag, useMessage } from 'naive-ui'
 import { getVisitorLogs } from '../../utils/adminApi'
+import { formatToCST } from '../../utils/dateFormat'
 
 const message = useMessage()
 const loading = ref(false)
@@ -129,9 +130,7 @@ const columns = [
     key: 'created_at',
     width: 180,
     render: (row) => {
-      if (!row.created_at) return '-'
-      const date = new Date(row.created_at)
-      return date.toLocaleString('zh-CN')
+      return formatToCST(row.created_at)
     }
   }
 ]

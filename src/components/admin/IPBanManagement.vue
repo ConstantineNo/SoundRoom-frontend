@@ -71,6 +71,7 @@ import {
   useMessage
 } from 'naive-ui'
 import { getBannedIPs, banIP, unbanIP } from '../../utils/adminApi'
+import { formatToCST } from '../../utils/dateFormat'
 
 const message = useMessage()
 const loading = ref(false)
@@ -123,9 +124,7 @@ const columns = [
     key: 'banned_at',
     width: 180,
     render: (row) => {
-      if (!row.banned_at) return '-'
-      const date = new Date(row.banned_at)
-      return date.toLocaleString('zh-CN')
+      return formatToCST(row.banned_at)
     }
   },
   {
@@ -134,8 +133,7 @@ const columns = [
     width: 180,
     render: (row) => {
       if (!row.expires_at) return h(NTag, { type: 'error' }, { default: () => '永久封禁' })
-      const date = new Date(row.expires_at)
-      return date.toLocaleString('zh-CN')
+      return formatToCST(row.expires_at)
     }
   },
   {
