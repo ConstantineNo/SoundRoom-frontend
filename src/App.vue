@@ -29,6 +29,12 @@
                   ICP备案号：粤ICP备2025505237号-1
                 </a>
               </div>
+              <div style="margin-top: 5px;">
+                <a href="https://beian.mps.gov.cn/#/query/webSearch?code=44195202000246" rel="noreferrer" target="_blank" style="text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 4px;">
+                  <img src="/备案图标.png" alt="备案图标" style="height: 14px; vertical-align: middle;" />
+                  粤公网安备44195202000246号
+                </a>
+              </div>
             </n-layout-footer>
           </n-layout>
         </n-notification-provider>
