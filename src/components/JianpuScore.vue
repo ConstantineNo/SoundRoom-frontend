@@ -137,12 +137,12 @@
           
           <!-- Tie lines (Filled Shapes) -->
           <template v-for="(tie, tIdx) in measure.ties" :key="'tie'+tIdx">
-            <path class="tie-line" :d="getTiePath(tie)" />
+            <path class="tie-line" :d="getTiePath(tie, measure)" />
           </template>
           
           <!-- Slur lines (Filled Shapes) -->
           <template v-for="(slur, sIdx) in measure.slurs" :key="'slur'+sIdx">
-            <path class="slur-line" :d="getSlurPath(slur)" />
+            <path class="slur-line" :d="getSlurPath(slur, measure)" />
           </template>
           
           <!-- Triplet brackets -->
@@ -521,23 +521,77 @@ const meterDisplay = computed(() => {
   return null
 })
 
-// Calculate tie path (arc above notes) - 书法笔触 (Crescent shape)
-// y=20 (Above numbers, numbers are at y=50)
-const getTiePath = (tie) => {
+// Calculate tie path (arc above notes) - 动态形态，根据距离和避让需求调整
+// 改进：根据连接音符的距离、位置和八度点动态调整弧线形态
+const getTiePath = (tie, measure) => {
   if (!tie.startX || !tie.endX) return ''
-  // startX 和 endX 已经是音符中心位置 (note.x + NOTE_WIDTH/2)
+  if (!measure || !measure.notes) return ''
+  
+  const startNote = measure.notes[tie.startIdx]
+  const endNote = measure.notes[tie.endIdx]
+  if (!startNote || !endNote) return ''
+  
   const x1 = tie.startX
   const x2 = tie.endX
-  const y = 22 // 音符上方
-  const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  // Height scales with distance, but capped
-  const h = Math.min(12, Math.max(6, distance * 0.12)) 
-  const thickness = 1.5 + Math.min(2.5, distance * 0.04) // Thicker in middle for long ties
   
-  // Top curve (going up) and Bottom curve (coming back, less high)
-  // M start Q control end Q control start Z
-  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+  // 基础 Y 位置（音符上方）
+  const baseY = 22
+  
+  // 计算需要避让的最高点（八度点）
+  // 高八度点的位置：y = 24 - (highDots - 1) * 7，最高点在 y = 17（1个点）或 y = 10（2个点）
+  let maxOctaveY = baseY
+  if (startNote.highDots > 0) {
+    const startOctaveY = 24 - (startNote.highDots - 1) * 7
+    maxOctaveY = Math.min(maxOctaveY, startOctaveY)
+  }
+  if (endNote.highDots > 0) {
+    const endOctaveY = 24 - (endNote.highDots - 1) * 7
+    maxOctaveY = Math.min(maxOctaveY, endOctaveY)
+  }
+  
+  // 检查中间的音符是否有八度点需要避让
+  for (let i = tie.startIdx + 1; i < tie.endIdx; i++) {
+    const note = measure.notes[i]
+    if (note && note.highDots > 0) {
+      const octaveY = 24 - (note.highDots - 1) * 7
+      maxOctaveY = Math.min(maxOctaveY, octaveY)
+    }
+  }
+  
+  // 计算弧线高度
+  // 短距离：曲率大（更圆），高度相对较小
+  // 长距离：曲率小（更扁平），高度需要更大以避让
+  const minHeight = 6
+  const maxHeight = 30
+  const minClearance = 3 // 最小避让距离
+  
+  // 基础高度：根据距离计算
+  let baseHeight
+  if (distance < 30) {
+    // 短距离：使用较大的曲率系数
+    baseHeight = minHeight + distance * 0.15
+  } else if (distance < 100) {
+    // 中等距离：线性增长
+    baseHeight = minHeight + (distance - 30) * 0.12 + 4.5
+  } else {
+    // 长距离：使用平方根函数，避免过度增长
+    baseHeight = minHeight + Math.sqrt(distance) * 1.2
+  }
+  
+  // 确保避让八度点
+  const requiredHeight = (baseY - maxOctaveY) + minClearance
+  const h = Math.max(baseHeight, requiredHeight, minHeight)
+  const finalHeight = Math.min(h, maxHeight)
+  
+  // 厚度：根据距离调整
+  const thickness = 1.5 + Math.min(3, distance * 0.03)
+  
+  // 使用二次贝塞尔曲线（Q命令）创建平滑弧线
+  const midX = (x1 + x2) / 2
+  const y = baseY
+  
+  return `M ${x1} ${y} Q ${midX} ${y - finalHeight} ${x2} ${y} Q ${midX} ${y - finalHeight + thickness} ${x1} ${y} Z`
 }
 
 // Calculate grace notes slur path (倚音弧线) - deprecated
@@ -590,22 +644,78 @@ const getGraceUnderlineCount = (graceNotes) => {
   return Math.max(...graceNotes.map(g => g.underlines || 0))
 }
 
-// Calculate slur path (also above)
-const getSlurPath = (slur) => {
+// Calculate slur path (also above) - 动态形态，根据距离和避让需求调整
+// 改进：根据连接音符的距离、位置和八度点动态调整弧线形态
+const getSlurPath = (slur, measure) => {
   if (!slur.startX || !slur.endX) return ''
-  // startX 和 endX 已经是音符中心位置 (note.x + NOTE_WIDTH/2)
+  if (!measure || !measure.notes) return ''
+  
+  const startNote = measure.notes[slur.startIdx]
+  const endNote = measure.notes[slur.endIdx]
+  if (!startNote || !endNote) return ''
+  
   const x1 = slur.startX
   const x2 = slur.endX
-  const y = 18 // 比 tie 稍高一点
-  const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const h = Math.min(15, Math.max(8, distance * 0.15))
-  const thickness = 1.5 + Math.min(3, distance * 0.04)
   
-  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+  // 基础 Y 位置（比 tie 稍高一点）
+  const baseY = 18
+  
+  // 计算需要避让的最高点（八度点）
+  let maxOctaveY = baseY
+  if (startNote.highDots > 0) {
+    const startOctaveY = 24 - (startNote.highDots - 1) * 7
+    maxOctaveY = Math.min(maxOctaveY, startOctaveY)
+  }
+  if (endNote.highDots > 0) {
+    const endOctaveY = 24 - (endNote.highDots - 1) * 7
+    maxOctaveY = Math.min(maxOctaveY, endOctaveY)
+  }
+  
+  // 检查中间的音符是否有八度点需要避让
+  for (let i = slur.startIdx + 1; i < slur.endIdx; i++) {
+    const note = measure.notes[i]
+    if (note && note.highDots > 0) {
+      const octaveY = 24 - (note.highDots - 1) * 7
+      maxOctaveY = Math.min(maxOctaveY, octaveY)
+    }
+  }
+  
+  // 计算弧线高度
+  const minHeight = 8
+  const maxHeight = 35
+  const minClearance = 3 // 最小避让距离
+  
+  // 基础高度：根据距离计算
+  let baseHeight
+  if (distance < 30) {
+    // 短距离：使用较大的曲率系数
+    baseHeight = minHeight + distance * 0.18
+  } else if (distance < 100) {
+    // 中等距离：线性增长
+    baseHeight = minHeight + (distance - 30) * 0.15 + 5.4
+  } else {
+    // 长距离：使用平方根函数
+    baseHeight = minHeight + Math.sqrt(distance) * 1.5
+  }
+  
+  // 确保避让八度点
+  const requiredHeight = (baseY - maxOctaveY) + minClearance
+  const h = Math.max(baseHeight, requiredHeight, minHeight)
+  const finalHeight = Math.min(h, maxHeight)
+  
+  // 厚度：根据距离调整
+  const thickness = 1.5 + Math.min(3.5, distance * 0.035)
+  
+  // 使用二次贝塞尔曲线创建平滑弧线
+  const midX = (x1 + x2) / 2
+  const y = baseY
+  
+  return `M ${x1} ${y} Q ${midX} ${y - finalHeight} ${x2} ${y} Q ${midX} ${y - finalHeight + thickness} ${x1} ${y} Z`
 }
 
-// Calculate cross-measure tie path (跨小节连音线)
+// Calculate cross-measure tie path (跨小节连音线) - 动态形态
+// 改进：根据连接音符的距离、位置和八度点动态调整弧线形态
 const getCrossMeasureTiePath = (crossTie, measures) => {
   if (!crossTie || !measures) return ''
   
@@ -622,13 +732,50 @@ const getCrossMeasureTiePath = (crossTie, measures) => {
   // Calculate absolute X positions
   const x1 = startMeasure.x + startNote.x + NOTE_WIDTH / 2
   const x2 = endMeasure.x + endNote.x + NOTE_WIDTH / 2
-  const y = 22
-  const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const h = Math.min(12, Math.max(6, distance * 0.12))
-  const thickness = 1.5 + Math.min(2.5, distance * 0.04)
   
-  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+  // 基础 Y 位置
+  const baseY = 22
+  
+  // 计算需要避让的最高点（八度点）
+  let maxOctaveY = baseY
+  if (startNote.highDots > 0) {
+    const startOctaveY = 24 - (startNote.highDots - 1) * 7
+    maxOctaveY = Math.min(maxOctaveY, startOctaveY)
+  }
+  if (endNote.highDots > 0) {
+    const endOctaveY = 24 - (endNote.highDots - 1) * 7
+    maxOctaveY = Math.min(maxOctaveY, endOctaveY)
+  }
+  
+  // 计算弧线高度（跨小节通常距离较远）
+  const minHeight = 6
+  const maxHeight = 35
+  const minClearance = 3
+  
+  // 基础高度：跨小节通常距离较远，需要更大的高度
+  let baseHeight
+  if (distance < 50) {
+    baseHeight = minHeight + distance * 0.12
+  } else if (distance < 200) {
+    baseHeight = minHeight + (distance - 50) * 0.1 + 6
+  } else {
+    baseHeight = minHeight + Math.sqrt(distance) * 1.2
+  }
+  
+  // 确保避让八度点
+  const requiredHeight = (baseY - maxOctaveY) + minClearance
+  const h = Math.max(baseHeight, requiredHeight, minHeight)
+  const finalHeight = Math.min(h, maxHeight)
+  
+  // 厚度：根据距离调整
+  const thickness = 1.5 + Math.min(3, distance * 0.03)
+  
+  // 使用二次贝塞尔曲线创建平滑弧线
+  const midX = (x1 + x2) / 2
+  const y = baseY
+  
+  return `M ${x1} ${y} Q ${midX} ${y - finalHeight} ${x2} ${y} Q ${midX} ${y - finalHeight + thickness} ${x1} ${y} Z`
 }
 
 // Main computation
