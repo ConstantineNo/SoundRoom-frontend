@@ -20,6 +20,11 @@
         
         <!-- Measures in this row -->
         <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
+          <!-- Measure number (小节号) - 显示在左上角 -->
+          <text v-if="measure.measureNumber" class="measure-number" x="-12" y="12">
+            {{ measure.measureNumber }}
+          </text>
+          
           <!-- Warning background -->
           <rect v-if="measure.durationStatus === 'overflow'" class="duration-warning-bg overflow" :x="0" :y="10" :width="measureWidth" :height="60" />
           <rect v-if="measure.durationStatus === 'underflow'" class="duration-warning-bg underflow" :x="0" :y="10" :width="measureWidth" :height="60" />
@@ -566,7 +571,7 @@ const getTiePath = (tie, measure) => {
   const maxHeight = 30
   const minClearance = 3 // 最小避让距离
   
-  // 基础高度：根据距离计算
+  // 基础高度：根据距离计算（确保在过渡点处连续）
   let baseHeight
   if (distance < 30) {
     // 短距离：使用较大的曲率系数
@@ -575,8 +580,10 @@ const getTiePath = (tie, measure) => {
     // 中等距离：线性增长
     baseHeight = minHeight + (distance - 30) * 0.12 + 4.5
   } else {
-    // 长距离：使用平方根函数，避免过度增长
-    baseHeight = minHeight + Math.sqrt(distance) * 1.2
+    // 长距离：使用平方根函数，调整系数使其在 distance=100 处连续
+    // 在 distance=100 时，中等距离公式给出：6 + 70*0.12 + 4.5 = 18.9
+    // 所以：6 + sqrt(100)*k = 18.9，解得 k = 1.29
+    baseHeight = minHeight + Math.sqrt(distance) * 1.29
   }
   
   // 确保避让八度点
@@ -686,7 +693,7 @@ const getSlurPath = (slur, measure) => {
   const maxHeight = 35
   const minClearance = 3 // 最小避让距离
   
-  // 基础高度：根据距离计算
+  // 基础高度：根据距离计算（确保在过渡点处连续）
   let baseHeight
   if (distance < 30) {
     // 短距离：使用较大的曲率系数
@@ -695,8 +702,10 @@ const getSlurPath = (slur, measure) => {
     // 中等距离：线性增长
     baseHeight = minHeight + (distance - 30) * 0.15 + 5.4
   } else {
-    // 长距离：使用平方根函数
-    baseHeight = minHeight + Math.sqrt(distance) * 1.5
+    // 长距离：使用平方根函数，调整系数使其在 distance=100 处连续
+    // 在 distance=100 时，中等距离公式给出：8 + 70*0.15 + 5.4 = 23.9
+    // 所以：8 + sqrt(100)*k = 23.9，解得 k = 1.59
+    baseHeight = minHeight + Math.sqrt(distance) * 1.59
   }
   
   // 确保避让八度点
@@ -753,14 +762,17 @@ const getCrossMeasureTiePath = (crossTie, measures) => {
   const maxHeight = 35
   const minClearance = 3
   
-  // 基础高度：跨小节通常距离较远，需要更大的高度
+  // 基础高度：跨小节通常距离较远，需要更大的高度（确保在过渡点处连续）
   let baseHeight
   if (distance < 50) {
     baseHeight = minHeight + distance * 0.12
   } else if (distance < 200) {
     baseHeight = minHeight + (distance - 50) * 0.1 + 6
   } else {
-    baseHeight = minHeight + Math.sqrt(distance) * 1.2
+    // 长距离：使用平方根函数，调整系数使其在 distance=200 处连续
+    // 在 distance=200 时，中等距离公式给出：6 + 150*0.1 + 6 = 27
+    // 所以：6 + sqrt(200)*k = 27，解得 k = 21/sqrt(200) ≈ 1.485
+    baseHeight = minHeight + Math.sqrt(distance) * 1.485
   }
   
   // 确保避让八度点
@@ -1314,6 +1326,16 @@ const svgHeight = computed(() => {
 
 .repeat-dot {
   fill: #000;
+}
+
+/* Measure number (小节号) */
+.measure-number {
+  font-size: 12px;
+  font-family: 'SimSun', 'Songti SC', 'STSong', serif;
+  font-weight: bold;
+  fill: #666;
+  text-anchor: end;
+  user-select: none;
 }
 
 .highlight-bg {
