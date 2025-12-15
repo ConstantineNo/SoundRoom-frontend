@@ -20,6 +20,16 @@
         
         <!-- Measures in this row -->
         <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
+          <!-- Measure number (小节号) -->
+          <!-- 行首小节使用正坐标，避免被裁剪；非行首可稍微向左贴紧小节线 -->
+          <text
+            v-if="measure.measureNumber"
+            class="measure-number"
+            :x="mIdx === 0 ? 6 : -10"
+            y="12"
+          >
+            {{ measure.measureNumber }}
+          </text>
           <!-- Warning background -->
           <rect v-if="measure.durationStatus === 'overflow'" class="duration-warning-bg overflow" :x="0" :y="10" :width="measureWidth" :height="60" />
           <rect v-if="measure.durationStatus === 'underflow'" class="duration-warning-bg underflow" :x="0" :y="10" :width="measureWidth" :height="60" />
@@ -1310,6 +1320,15 @@ const svgHeight = computed(() => {
 
 .duration-label.underflow {
   fill: #faad14;
+}
+
+.measure-number {
+  font-size: 12px;
+  font-family: 'SimSun', 'Songti SC', 'STSong', serif;
+  font-weight: bold;
+  fill: #666;
+  text-anchor: end;
+  user-select: none;
 }
 
 /* Debug Panel */
