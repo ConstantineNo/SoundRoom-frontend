@@ -13,6 +13,12 @@
           <template #icon><n-icon><Copy /></n-icon></template>
           <span class="btn-text">复制提示词</span>
         </n-button>
+        <n-select 
+          v-model:value="currentInstrument" 
+          :options="instrumentOptions" 
+          size="small"
+          style="width: 100px; margin-right: 8px;"
+        />
         <n-button type="primary" @click="saveScore" :loading="saving">
           <template #icon><n-icon><Save /></n-icon></template>
           <span class="btn-text">保存并解析</span>
@@ -90,7 +96,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import abcjs from 'abcjs'
 import 'abcjs/abcjs-audio.css'
-import { useMessage, NButton, NIcon } from 'naive-ui'
+import { useMessage, NButton, NIcon, NSelect } from 'naive-ui'
 import JianpuScore from '../components/JianpuScore.vue'
 import { ArrowBack, Copy, Save } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
@@ -112,6 +118,17 @@ const rightPaneRef = ref(null)
 const scoreId = route.params.scoreId
 const score = ref(null)
 const abcCode = ref('')
+
+const instrumentOptions = [
+  { label: '钢琴', value: 0 },
+  { label: '小提琴', value: 40 },
+  { label: '长笛', value: 73 }
+]
+const currentInstrument = ref(0)
+
+watch(currentInstrument, () => {
+  renderAbc()
+})
 const saving = ref(false)
 const syntaxError = ref('')
 const viewMode = ref('staff') // 'staff' | 'jianpu'
@@ -299,8 +316,19 @@ const renderAbc = debounce(async () => {
   elemToIdMap.clear()
   
   try {
+    // 构造包含乐器设置的 ABC 代码
+    let codeToRender = abcCode.value
+    // 尝试在 K: 字段后插入 MIDI program 指令，如果没有则插在最前面
+    const kMatch = codeToRender.match(/^K:.*\n/m)
+    if (kMatch) {
+       const insertPos = kMatch.index + kMatch[0].length
+       codeToRender = codeToRender.slice(0, insertPos) + `%%MIDI program ${currentInstrument.value}\n` + codeToRender.slice(insertPos)
+    } else {
+       codeToRender = `%%MIDI program ${currentInstrument.value}\n` + codeToRender
+    }
+
     // 1. 渲染乐谱
-    const tune = abcjs.renderAbc("paper", abcCode.value, {
+    const tune = abcjs.renderAbc("paper", codeToRender, {
       responsive: "resize",
       add_classes: true,
       staffwidth: 800 
@@ -374,7 +402,8 @@ const renderAbc = debounce(async () => {
       try {
         // C. 设置曲目
         await synthControl.setTune(tune[0], true, {
-          chordsOff: true
+          chordsOff: true,
+          soundFontUrl: "/soundfonts/FluidR3_GM/"
         })
         
         console.log("音频初始化完成")
