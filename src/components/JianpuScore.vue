@@ -41,6 +41,14 @@
             </text>
           </g>
 
+          <!-- ========================================================== -->
+          <!-- 新增：渲染前奏、尾奏等段落的括号 (使用文本圆括号) -->
+          <!-- ========================================================== -->
+          <text v-if="measure.hasBracketStart" class="part-bracket-text" 
+                :x="measure.startBarType === 'bar_left_repeat' ? 24 : 8" 
+                y="52">(</text>
+          <text v-if="measure.hasBracketEnd" class="part-bracket-text" :x="measureWidth - 15" y="52">)</text>
+
           <!-- Beams (合并的减时线) - Render BEFORE notes so they are behind if overlapping? Actually below is fine. -->
           <g v-for="(beam, bIdx) in measure.beams" :key="'bm'+bIdx">
             <line class="beam-line" :x1="beam.x1" :y1="beam.y" :x2="beam.x2" :y2="beam.y" />
@@ -411,7 +419,18 @@ const getNoteDisplayWidth = (note) => {
 const layoutMeasureNotes = (measure) => {
   if (!measure.notes || measure.notes.length === 0) return
   
-  const availableWidth = measureWidth - MEASURE_PADDING * 2
+  // 动态计算起始内边距
+  let startPadding = MEASURE_PADDING
+  // 如果有前括号，需要更多空间避免重叠
+  if (measure.hasBracketStart) {
+    if (measure.startBarType === 'bar_left_repeat') {
+      startPadding += 30 // 重复号+括号，大幅增加间距
+    } else {
+      startPadding += 10 // 仅括号，稍微增加间距
+    }
+  }
+  
+  const availableWidth = measureWidth - startPadding - MEASURE_PADDING
   
   // 首先按拍分组
   const beatGroups = {}
@@ -453,7 +472,7 @@ const layoutMeasureNotes = (measure) => {
   const scaleFactor = totalNeeded > availableWidth ? availableWidth / totalNeeded : 1
   
   // 分配位置
-  let currentX = MEASURE_PADDING
+  let currentX = startPadding
   beatKeys.forEach((beatIdx, i) => {
     const group = beatGroups[beatIdx]
     
@@ -653,6 +672,7 @@ const computedRows = computed(() => {
   
   let keyRoot = 0
   const allMeasures = []
+  let currentPart = null; // 用于追踪当前所在的段落
   let currentMeasure = { notes: [], ties: [], slurs: [], totalDuration: 0, barType: 'bar_thin', startBarType: null, beams: [], tripletGroups: [] }
   let noteCount = 0
   let measureIndex = 0
@@ -854,6 +874,9 @@ const computedRows = computed(() => {
               
               // Layout
               layoutMeasureWithBeams(currentMeasure)
+              if (currentPart) {
+                currentMeasure.part = currentPart;
+              }
               allMeasures.push(currentMeasure)
             } else if (el.type === 'bar_left_repeat' || el.type === 'bar_thick_thin') {
               pendingStartBarType = 'bar_left_repeat'
@@ -983,6 +1006,25 @@ const computedRows = computed(() => {
                  slurStartInfo = null
                }
             }
+          } else if (el.el_type === 'part') {
+            // P: 标记会被解析为 part 类型，直接使用其 title
+            currentPart = el.title || '';
+            console.log('[JianpuScore] Found Part (type=part):', currentPart);
+          } else if (el.el_type === 'text') {
+            // 尝试从文本中识别段落标记
+            const raw = el.text || '';
+            if (/^(part|Part)\s+/i.test(raw)) {
+                currentPart = raw.replace(/^(part|Part)\s*/i, '').trim();
+                console.log('[JianpuScore] Found Part (from text):', currentPart);
+            } else if (['前奏', '间奏', '尾奏', '主歌', '副歌'].some(k => raw.includes(k))) {
+                currentPart = raw.trim();
+                console.log('[JianpuScore] Found Part (keyword):', currentPart);
+            }
+          } else {
+            // Debug: 查看是否有未处理的元素可能是 part 标记
+            if (el.el_type !== 'bar' && el.el_type !== 'note' && el.el_type !== 'clef' && el.el_type !== 'key' && el.el_type !== 'meter') {
+               console.log('[JianpuScore] Unhandled element type:', el.el_type, el);
+            }
           }
         })
       })
@@ -996,9 +1038,43 @@ const computedRows = computed(() => {
       currentMeasure.durationStatus = 'ok' // 最后一小节通常不满，视为OK
       if (currentMeasure.totalDuration - expectedMeasureDuration > 0.01) currentMeasure.durationStatus = 'overflow'
       
+      if (currentPart) {
+        currentMeasure.part = currentPart;
+      }
       layoutMeasureWithBeams(currentMeasure)
       allMeasures.push(currentMeasure)
   }
+
+  // ==========================================================
+  // 新增：后处理，为段落的首尾小节添加括号标志
+  // ==========================================================
+  const partSections = {}; // 用来存储每个 part 的起止索引
+  allMeasures.forEach((measure, index) => {
+      if (measure.part) {
+          if (!partSections[measure.part]) {
+              partSections[measure.part] = { start: index, end: index };
+          } else {
+              partSections[measure.part].end = index;
+          }
+      }
+  });
+
+  Object.keys(partSections).forEach(partName => {
+      // 我们只为“前奏”、“间奏”、“尾奏”添加括号
+      if (partName.includes('前奏') || partName.includes('间奏') || partName.includes('尾奏')) {
+          const section = partSections[partName];
+          if (allMeasures[section.start]) {
+              allMeasures[section.start].hasBracketStart = true;
+              // 重新布局以适应括号空间
+              layoutMeasureWithBeams(allMeasures[section.start]);
+          }
+          if (allMeasures[section.end]) {
+              allMeasures[section.end].hasBracketEnd = true;
+              // 重新布局（虽然结束括号通常不需要额外空间，但保持一致）
+              layoutMeasureWithBeams(allMeasures[section.end]);
+          }
+      }
+  });
 
   totalNotes.value = noteCount
   totalMeasures.value = allMeasures.length
@@ -1168,6 +1244,14 @@ const svgHeight = computed(() => {
 
 .repeat-dot {
   fill: #000;
+}
+
+.part-bracket-text {
+  font-size: 34px;
+  font-family: 'JianpuPoints', 'Times New Roman', serif;
+  font-weight: normal;
+  fill: #000;
+  text-anchor: middle;
 }
 
 .highlight-bg {
