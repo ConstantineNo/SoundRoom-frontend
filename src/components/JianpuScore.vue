@@ -21,11 +21,11 @@
         <!-- Measures in this row -->
         <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
           <!-- Measure number (小节号) -->
-          <!-- 行首小节使用正坐标，避免被裁剪；非行首可稍微向左贴紧小节线 -->
+          <!-- 行首小节使用更大的正坐标，避免两位数被裁剪；非行首可稍微向左贴紧小节线 -->
           <text
             v-if="measure.measureNumber"
             class="measure-number"
-            :x="mIdx === 0 ? 6 : -10"
+            :x="mIdx === 0 ? 14 : -10"
             y="12"
           >
             {{ measure.measureNumber }}

@@ -1,5 +1,5 @@
 <template>
-  <div class="editor-container">
+  <div class="editor-container" :class="`layout-${layoutMode}`">
     <div class="header">
       <div class="left">
         <n-button secondary @click="$router.push('/library')">
@@ -58,17 +58,22 @@
       </div>
       
       <!-- Right: Preview -->
-      <div class="pane right-pane">
+      <div class="pane right-pane" ref="rightPaneRef">
         <div id="audio" class="audio-container"></div>
         <div id="paper" class="paper-container" v-show="viewMode === 'staff'"></div>
-        <JianpuScore 
+        <div 
           v-if="viewMode === 'jianpu' && visualObj" 
-          :tune="visualObj" 
-          :active-note-ids="activeNoteIds"
-          :debug-mode="true"
-          @measure-issues="handleMeasureIssues"
-          @seek-to-note="handleSeekToNote"
-        />
+          class="score-wrapper" 
+          :style="scoreWrapperStyle"
+        >
+          <JianpuScore 
+            :tune="visualObj" 
+            :active-note-ids="activeNoteIds"
+            :debug-mode="true"
+            @measure-issues="handleMeasureIssues"
+            @seek-to-note="handleSeekToNote"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -85,6 +90,10 @@ import JianpuScore from '../components/JianpuScore.vue'
 import { ArrowBack } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
 
+const BREAKPOINT_MOBILE = 600
+const BREAKPOINT_TABLET = 1024
+const IDEAL_SCORE_WIDTH = 1100 // 约等于 4 小节一行的理想宽度
+
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
@@ -93,6 +102,7 @@ const userStore = useUserStore()
 // Editor refs
 const textareaRef = ref(null)
 const lineNumbersRef = ref(null)
+const rightPaneRef = ref(null)
 
 const scoreId = route.params.scoreId
 const score = ref(null)
@@ -103,6 +113,9 @@ const viewMode = ref('staff') // 'staff' | 'jianpu'
 const visualObj = ref(null)
 const activeNoteIds = ref([]) // IDs of notes currently playing
 const measureIssues = ref([]) // 小节时值问题
+
+const layoutMode = ref('desktop') // desktop | tablet | mobile
+const scoreScale = ref(1)
 
 let synthControl = null
 // 建立 SVG 元素到 _myId 的映射
@@ -484,13 +497,60 @@ Return ONLY the ABC code block. Do not provide explanations.`
 
 onMounted(() => {
   fetchScore()
+  initResizeObserver()
 })
 
 onUnmounted(() => {
   if (synthControl) {
     synthControl = null
   }
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
 })
+
+// ========== 自适应布局与缩放 ==========
+let resizeObserver = null
+
+const scoreWrapperStyle = computed(() => {
+  return {
+    transform: `scale(${scoreScale.value})`,
+    transformOrigin: 'top left',
+    width: scoreScale.value < 1 ? `${100 / scoreScale.value}%` : '100%',
+  }
+})
+
+const updateLayoutMode = (width) => {
+  if (width <= BREAKPOINT_MOBILE) {
+    layoutMode.value = 'mobile'
+  } else if (width <= BREAKPOINT_TABLET) {
+    layoutMode.value = 'tablet'
+  } else {
+    layoutMode.value = 'desktop'
+  }
+}
+
+const updateScoreScale = (width) => {
+  if (layoutMode.value === 'mobile') {
+    scoreScale.value = 1
+    return
+  }
+  const available = width - 20 // 留一点内边距
+  const scale = Math.min(1, available / IDEAL_SCORE_WIDTH)
+  scoreScale.value = scale
+}
+
+const initResizeObserver = () => {
+  if (!rightPaneRef.value) return
+  resizeObserver = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      const w = entry.contentRect.width
+      updateLayoutMode(w)
+      updateScoreScale(w)
+    }
+  })
+  resizeObserver.observe(rightPaneRef.value)
+}
 </script>
 
 <style scoped>
@@ -597,6 +657,9 @@ onUnmounted(() => {
   min-height: calc(100vh - 60px);
   display: flex;
   flex-direction: column;
+}
+.score-wrapper {
+  transform-origin: top left;
 }
 
 .code-editor {
@@ -709,6 +772,30 @@ onUnmounted(() => {
 :deep(.highlight-note path) {
   fill: #d03050 !important;
   stroke: #d03050 !important;
+}
+
+/* ========== 响应式布局 ========== */
+.layout-mobile .main-content {
+  flex-direction: column;
+}
+.layout-mobile .left-pane {
+  position: static;
+  flex: 0 0 auto;
+  height: auto;
+  max-height: 50vh;
+}
+.layout-mobile .right-pane {
+  min-height: auto;
+}
+.layout-mobile .paper-container {
+  margin-top: 10px;
+}
+
+.layout-tablet .left-pane {
+  flex-basis: 45%;
+}
+.layout-tablet .right-pane {
+  flex-basis: 55%;
 }
 :deep(g.highlight-note path) {
   fill: #d03050 !important;
