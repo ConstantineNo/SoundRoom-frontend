@@ -1,5 +1,5 @@
 <template>
-  <div class="jianpu-score" v-if="tune">
+  <div class="jianpu-score" v-if="tune" ref="scoreContainerRef">
     <!-- Header -->
     <div class="header-info">
       <div v-if="tune.metaText && tune.metaText.title" class="title">{{ tune.metaText.title }}</div>
@@ -10,199 +10,201 @@
     </div>
 
     <!-- SVG Music Body -->
-    <svg :width="svgWidth" :height="svgHeight" class="music-svg">
-      <!-- Rows -->
-      <g v-for="(row, rowIdx) in computedRows" :key="rowIdx" :transform="`translate(0, ${rowIdx * rowHeight})`">
-        <!-- Cross-measure ties (跨小节连音线) -->
-        <template v-for="(crossTie, ctIdx) in row.crossMeasureTies" :key="'ct'+ctIdx">
-          <path class="tie-line" :d="getCrossMeasureTiePath(crossTie, row.measures)" />
-        </template>
-        
-        <!-- Measures in this row -->
-        <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
-          <!-- Measure number (小节号) -->
-          <!-- 行首小节使用更大的正坐标，避免两位数被裁剪；非行首可稍微向左贴紧小节线 -->
-          <text
-            v-if="measure.measureNumber"
-            class="measure-number"
-            :x="mIdx === 0 ? 14 : -10"
-            y="12"
-          >
-            {{ measure.measureNumber }}
-          </text>
-          <!-- Warning background -->
-          <rect v-if="measure.durationStatus === 'overflow'" class="duration-warning-bg overflow" :x="0" :y="10" :width="measureWidth" :height="60" />
-          <rect v-if="measure.durationStatus === 'underflow'" class="duration-warning-bg underflow" :x="0" :y="10" :width="measureWidth" :height="60" />
+    <div class="svg-scroll-container">
+      <svg :width="svgWidth" :height="svgHeight" class="music-svg">
+        <!-- Rows -->
+        <g v-for="(row, rowIdx) in computedRows" :key="rowIdx" :transform="`translate(0, ${rowIdx * rowHeight})`">
+          <!-- Cross-measure ties (跨小节连音线) -->
+          <template v-for="(crossTie, ctIdx) in row.crossMeasureTies" :key="'ct'+ctIdx">
+            <path class="tie-line" :d="getCrossMeasureTiePath(crossTie, row.measures)" />
+          </template>
           
-          <!-- Duration status -->
-          <g v-if="measure.durationStatus !== 'ok'" class="duration-indicator">
-            <text :x="measureWidth - 5" y="8" class="duration-label" :class="measure.durationStatus">
-              {{ measure.durationStatus === 'overflow' ? '⚠超' : '⚠缺' }}
+          <!-- Measures in this row -->
+          <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
+            <!-- Measure number (小节号) -->
+            <!-- 行首小节使用更大的正坐标，避免两位数被裁剪；非行首可稍微向左贴紧小节线 -->
+            <text
+              v-if="measure.measureNumber"
+              class="measure-number"
+              :x="mIdx === 0 ? 14 : -10"
+              y="12"
+            >
+              {{ measure.measureNumber }}
             </text>
-          </g>
+            <!-- Warning background -->
+            <rect v-if="measure.durationStatus === 'overflow'" class="duration-warning-bg overflow" :x="0" :y="10" :width="measureWidth" :height="60" />
+            <rect v-if="measure.durationStatus === 'underflow'" class="duration-warning-bg underflow" :x="0" :y="10" :width="measureWidth" :height="60" />
+            
+            <!-- Duration status -->
+            <g v-if="measure.durationStatus !== 'ok'" class="duration-indicator">
+              <text :x="measureWidth - 5" y="8" class="duration-label" :class="measure.durationStatus">
+                {{ measure.durationStatus === 'overflow' ? '⚠超' : '⚠缺' }}
+              </text>
+            </g>
 
-          <!-- ========================================================== -->
-          <!-- 新增：渲染前奏、尾奏等段落的括号 (使用文本圆括号) -->
-          <!-- ========================================================== -->
-          <text v-if="measure.hasBracketStart" class="part-bracket-text" 
-                :x="measure.startBarType === 'bar_left_repeat' ? 24 : 8" 
-                y="52">(</text>
-          <text v-if="measure.hasBracketEnd" class="part-bracket-text" :x="measureWidth - 15" y="52">)</text>
+            <!-- ========================================================== -->
+            <!-- 新增：渲染前奏、尾奏等段落的括号 (使用文本圆括号) -->
+            <!-- ========================================================== -->
+            <text v-if="measure.hasBracketStart" class="part-bracket-text" 
+                  :x="measure.startBarType === 'bar_left_repeat' ? 24 : 8" 
+                  y="52">(</text>
+            <text v-if="measure.hasBracketEnd" class="part-bracket-text" :x="measureWidth - 15" y="52">)</text>
 
-          <!-- Beams (合并的减时线) - Render BEFORE notes so they are behind if overlapping? Actually below is fine. -->
-          <g v-for="(beam, bIdx) in measure.beams" :key="'bm'+bIdx">
-            <line class="beam-line" :x1="beam.x1" :y1="beam.y" :x2="beam.x2" :y2="beam.y" />
-          </g>
-          
-          <!-- Notes -->
-          <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
-             :transform="`translate(${note.x}, 0)`"
-             :class="{ 'clickable-note': !note.isRest && !note.isGrace }"
-             @click="onNoteClick(note)">
-             
-            <!-- 普通音符 -->
-            <template v-if="!note.isGrace">
-              <!-- Highlight -->
-              <rect v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId))"
-                class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55" />
-              
-              <!-- Accidental -->
-              <text v-if="note.accidental" class="accidental" :x="-2" y="48">{{ note.accidental }}</text>
-              
-              <!-- High octave dots -->
-              <template v-if="note.highDots > 0">
-                <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="24 - (d-1)*7" r="2.5" />
-              </template>
-              
-              <!-- Main number -->
-              <text class="note-number" :class="{ 'is-rest': note.isRest }" x="15" y="50">{{ note.number }}</text>
-
-              <!-- Low octave dots -->
-              <template v-if="note.lowDots > 0">
-                <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*7 + (note.hasBeam ? 12 : note.underlines * 5)" r="2.5" />
-              </template>
-              
-              <!-- Underlines (only if NOT beamed) -->
-              <template v-if="!note.hasBeam && note.underlines > 0">
-                <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="58 + (u-1)*5" :x2="27" :y2="58 + (u-1)*5" />
-              </template>
-              
-              <!-- Augmentation dot -->
-              <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="42" r="2.5"/>
-              
-              <!-- Dashes (延音线/增时线) - 每个横线独立占位，居中显示 -->
-              <template v-if="note.dashes > 0 && !note.isRest">
-                <g v-for="d in note.dashes" :key="'d'+d"
-                   :transform="`translate(${(d) * NOTE_WIDTH}, 0)`">
-                  <line class="dash" :x1="5" :y1="42" :x2="NOTE_WIDTH - 5" :y2="42" />
-                </g>
-              </template>
-
-              <!-- Lyric -->
-              <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
-              
-              <!-- Grace notes group (倚音组，显示在主音符左上角，微型字符上标样式) -->
-              <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container">
-                <!-- 倚音到主音的连接弧线 -->
-                <path class="grace-to-main-slur" 
-                  :d="getGraceToMainSlurPath(note.graceNotes.length)" />
-                <!-- 倚音组内部弧线（多个倚音时） -->
-                <path v-if="note.graceNotes.length > 1" class="grace-slur" 
-                  :d="getGraceGroupSlurPath(note.graceNotes.length)" />
-                <!-- 三连音标记 -->
-                <text v-if="note.graceNotes.length === 3" class="grace-triplet-mark"
-                  :x="-note.graceNotes.length * 5" y="12">3</text>
-                <!-- 每个倚音 (微型字符，约50%) -->
-                <g v-for="(grace, gIdx) in note.graceNotes" :key="'g'+gIdx"
-                   :transform="`translate(${-((note.graceNotes.length - gIdx) * 10) - 2}, -8)`">
-                  <!-- 高八度点 -->
-                  <circle v-if="grace.highDots > 0" class="grace-octave-dot" :cx="5" :cy="18" r="1.5" />
-                  <!-- 音符数字 (微型) -->
-                  <text class="grace-note-number" x="5" y="32">{{ grace.number }}</text>
-                  <!-- 低八度点 -->
-                  <circle v-if="grace.lowDots > 0" class="grace-octave-dot" :cx="5" :cy="38" r="1.5" />
-                </g>
-                <!-- 倚音组共享的微型下划线 (减时线) -->
-                <template v-if="getGraceUnderlineCount(note.graceNotes) > 0">
-                  <line v-for="u in getGraceUnderlineCount(note.graceNotes)" :key="'gu'+u" 
-                    class="grace-underline"
-                    :x1="-note.graceNotes.length * 10 - 2"
-                    :y1="28 + (u-1)*3"
-                    :x2="-4"
-                    :y2="28 + (u-1)*3" />
+            <!-- Beams (合并的减时线) - Render BEFORE notes so they are behind if overlapping? Actually below is fine. -->
+            <g v-for="(beam, bIdx) in measure.beams" :key="'bm'+bIdx">
+              <line class="beam-line" :x1="beam.x1" :y1="beam.y" :x2="beam.x2" :y2="beam.y" />
+            </g>
+            
+            <!-- Notes -->
+            <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
+               :transform="`translate(${note.x}, 0)`"
+               :class="{ 'clickable-note': !note.isRest && !note.isGrace }"
+               @click="onNoteClick(note)">
+               
+              <!-- 普通音符 -->
+              <template v-if="!note.isGrace">
+                <!-- Highlight -->
+                <rect v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId))"
+                  class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || NOTE_WIDTH) + 10" :height="55" />
+                
+                <!-- Accidental -->
+                <text v-if="note.accidental" class="accidental" :x="-2" y="48">{{ note.accidental }}</text>
+                
+                <!-- High octave dots -->
+                <template v-if="note.highDots > 0">
+                  <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="15" :cy="24 - (d-1)*7" r="2.5" />
                 </template>
-              </g>
+                
+                <!-- Main number -->
+                <text class="note-number" :class="{ 'is-rest': note.isRest }" x="15" y="50">{{ note.number }}</text>
+
+                <!-- Low octave dots -->
+                <template v-if="note.lowDots > 0">
+                  <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="15" :cy="60 + (d-1)*7 + (note.hasBeam ? 12 : note.underlines * 5)" r="2.5" />
+                </template>
+                
+                <!-- Underlines (only if NOT beamed) -->
+                <template v-if="!note.hasBeam && note.underlines > 0">
+                  <line v-for="u in note.underlines" :key="'u'+u" class="underline" :x1="3" :y1="58 + (u-1)*5" :x2="27" :y2="58 + (u-1)*5" />
+                </template>
+                
+                <!-- Augmentation dot -->
+                <circle v-if="note.augDot && !note.isRest" class="aug-dot" :cx="28" :cy="42" r="2.5"/>
+                
+                <!-- Dashes (延音线/增时线) - 每个横线独立占位，居中显示 -->
+                <template v-if="note.dashes > 0 && !note.isRest">
+                  <g v-for="d in note.dashes" :key="'d'+d"
+                     :transform="`translate(${(d) * NOTE_WIDTH}, 0)`">
+                    <line class="dash" :x1="5" :y1="42" :x2="NOTE_WIDTH - 5" :y2="42" />
+                  </g>
+                </template>
+
+                <!-- Lyric -->
+                <text v-if="note.lyric" class="lyric-text" x="15" y="90">{{ note.lyric }}</text>
+                
+                <!-- Grace notes group (倚音组，显示在主音符左上角，微型字符上标样式) -->
+                <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container">
+                  <!-- 倚音到主音的连接弧线 -->
+                  <path class="grace-to-main-slur" 
+                    :d="getGraceToMainSlurPath(note.graceNotes.length)" />
+                  <!-- 倚音组内部弧线（多个倚音时） -->
+                  <path v-if="note.graceNotes.length > 1" class="grace-slur" 
+                    :d="getGraceGroupSlurPath(note.graceNotes.length)" />
+                  <!-- 三连音标记 -->
+                  <text v-if="note.graceNotes.length === 3" class="grace-triplet-mark"
+                    :x="-note.graceNotes.length * 5" y="12">3</text>
+                  <!-- 每个倚音 (微型字符，约50%) -->
+                  <g v-for="(grace, gIdx) in note.graceNotes" :key="'g'+gIdx"
+                     :transform="`translate(${-((note.graceNotes.length - gIdx) * 10) - 2}, -8)`">
+                    <!-- 高八度点 -->
+                    <circle v-if="grace.highDots > 0" class="grace-octave-dot" :cx="5" :cy="18" r="1.5" />
+                    <!-- 音符数字 (微型) -->
+                    <text class="grace-note-number" x="5" y="32">{{ grace.number }}</text>
+                    <!-- 低八度点 -->
+                    <circle v-if="grace.lowDots > 0" class="grace-octave-dot" :cx="5" :cy="38" r="1.5" />
+                  </g>
+                  <!-- 倚音组共享的微型下划线 (减时线) -->
+                  <template v-if="getGraceUnderlineCount(note.graceNotes) > 0">
+                    <line v-for="u in getGraceUnderlineCount(note.graceNotes)" :key="'gu'+u" 
+                      class="grace-underline"
+                      :x1="-note.graceNotes.length * 10 - 2"
+                      :y1="28 + (u-1)*3"
+                      :x2="-4"
+                      :y2="28 + (u-1)*3" />
+                  </template>
+                </g>
+              </template>
+              
+              <!-- 旧版倚音渲染（已废弃，但保留以防万一） -->
+              <template v-else>
+                <!-- 倚音以缩放方式渲染 -->
+                <g transform="scale(0.6)">
+                  <template v-if="note.highDots > 0">
+                    <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="12" :cy="22 - (d-1)*5" r="2" />
+                  </template>
+                  <text class="note-number is-grace" x="12" y="40">{{ note.number }}</text>
+                  <template v-if="note.lowDots > 0">
+                    <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="12" :cy="48 + (d-1)*5" r="2" />
+                  </template>
+                  <template v-if="note.underlines > 0">
+                    <line v-for="u in note.underlines" :key="'u'+u" class="underline" 
+                      :x1="2" :y1="48 + (u-1)*4" :x2="22" :y2="48 + (u-1)*4" />
+                  </template>
+                </g>
+              </template>
+            </g>
+            
+            <!-- Tie lines (Filled Shapes) -->
+            <template v-for="(tie, tIdx) in measure.ties" :key="'tie'+tIdx">
+              <path class="tie-line" :d="getTiePath(tie)" />
             </template>
             
-            <!-- 旧版倚音渲染（已废弃，但保留以防万一） -->
-            <template v-else>
-              <!-- 倚音以缩放方式渲染 -->
-              <g transform="scale(0.6)">
-                <template v-if="note.highDots > 0">
-                  <circle v-for="d in note.highDots" :key="'h'+d" class="octave-dot" :cx="12" :cy="22 - (d-1)*5" r="2" />
-                </template>
-                <text class="note-number is-grace" x="12" y="40">{{ note.number }}</text>
-                <template v-if="note.lowDots > 0">
-                  <circle v-for="d in note.lowDots" :key="'l'+d" class="octave-dot" :cx="12" :cy="48 + (d-1)*5" r="2" />
-                </template>
-                <template v-if="note.underlines > 0">
-                  <line v-for="u in note.underlines" :key="'u'+u" class="underline" 
-                    :x1="2" :y1="48 + (u-1)*4" :x2="22" :y2="48 + (u-1)*4" />
-                </template>
-              </g>
+            <!-- Slur lines (Filled Shapes) -->
+            <template v-for="(slur, sIdx) in measure.slurs" :key="'slur'+sIdx">
+              <path class="slur-line" :d="getSlurPath(slur)" />
             </template>
-          </g>
-          
-          <!-- Tie lines (Filled Shapes) -->
-          <template v-for="(tie, tIdx) in measure.ties" :key="'tie'+tIdx">
-            <path class="tie-line" :d="getTiePath(tie)" />
-          </template>
-          
-          <!-- Slur lines (Filled Shapes) -->
-          <template v-for="(slur, sIdx) in measure.slurs" :key="'slur'+sIdx">
-            <path class="slur-line" :d="getSlurPath(slur)" />
-          </template>
-          
-          <!-- Triplet brackets -->
-          <template v-for="(triplet, tpIdx) in measure.tripletGroups" :key="'triplet'+tpIdx">
-            <text :x="(triplet.startX + triplet.endX + 30) / 2" y="15" class="triplet-number">3</text>
-          </template>
-          
-          <!-- Bar Lines -->
-          <!-- 小节开始的左重复符号 (|:) - 确保行首也能完整显示 -->
-          <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" 
-             :transform="`translate(${mIdx === 0 ? 10 : 0}, 0)`">
-            <rect class="bar-thick" x="-12" y="20" width="4" height="45"/>
-            <line class="bar-line" x1="-5" y1="20" x2="-5" y2="65"/>
-            <circle class="repeat-dot" cx="2" cy="35" r="2.5"/>
-            <circle class="repeat-dot" cx="2" cy="50" r="2.5"/>
-          </g>
-          
-          <!-- 小节结束的竖线 -->
-          <g class="bar-lines" :transform="`translate(${measureWidth + 5}, 0)`">
-            <!-- 右重复符号 (:|) - 两点+细线+粗线 -->
-            <template v-if="measure.barType === 'bar_right_repeat'">
-              <circle class="repeat-dot" cx="-18" cy="35" r="2.5"/>
-              <circle class="repeat-dot" cx="-18" cy="50" r="2.5"/>
-              <line class="bar-line" x1="-10" y1="20" x2="-10" y2="65"/>
-              <rect class="bar-thick" x="-6" y="20" width="4" height="45"/>
+            
+            <!-- Triplet brackets -->
+            <template v-for="(triplet, tpIdx) in measure.tripletGroups" :key="'triplet'+tpIdx">
+              <text :x="(triplet.startX + triplet.endX + 30) / 2" y="15" class="triplet-number">3</text>
             </template>
-            <!-- 终止线 (细线+粗线) -->
-            <template v-else-if="measure.barType === 'bar_thin_thick'">
-              <line class="bar-line" x1="-8" y1="20" x2="-8" y2="65"/>
-              <rect class="bar-thick" x="-4" y="20" width="4" height="45"/>
-            </template>
-            <!-- 双细线 -->
-            <template v-else-if="measure.barType === 'bar_dbl_thin'">
-              <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
-              <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
-            </template>
-            <!-- 普通细线 (默认) -->
-            <line v-else class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
+            
+            <!-- Bar Lines -->
+            <!-- 小节开始的左重复符号 (|:) - 确保行首也能完整显示 -->
+            <g v-if="measure.startBarType === 'bar_left_repeat'" class="bar-lines" 
+               :transform="`translate(${mIdx === 0 ? 10 : 0}, 0)`">
+              <rect class="bar-thick" x="-12" y="20" width="4" height="45"/>
+              <line class="bar-line" x1="-5" y1="20" x2="-5" y2="65"/>
+              <circle class="repeat-dot" cx="2" cy="35" r="2.5"/>
+              <circle class="repeat-dot" cx="2" cy="50" r="2.5"/>
+            </g>
+            
+            <!-- 小节结束的竖线 -->
+            <g class="bar-lines" :transform="`translate(${measureWidth + 5}, 0)`">
+              <!-- 右重复符号 (:|) - 两点+细线+粗线 -->
+              <template v-if="measure.barType === 'bar_right_repeat'">
+                <circle class="repeat-dot" cx="-18" cy="35" r="2.5"/>
+                <circle class="repeat-dot" cx="-18" cy="50" r="2.5"/>
+                <line class="bar-line" x1="-10" y1="20" x2="-10" y2="65"/>
+                <rect class="bar-thick" x="-6" y="20" width="4" height="45"/>
+              </template>
+              <!-- 终止线 (细线+粗线) -->
+              <template v-else-if="measure.barType === 'bar_thin_thick'">
+                <line class="bar-line" x1="-8" y1="20" x2="-8" y2="65"/>
+                <rect class="bar-thick" x="-4" y="20" width="4" height="45"/>
+              </template>
+              <!-- 双细线 -->
+              <template v-else-if="measure.barType === 'bar_dbl_thin'">
+                <line class="bar-line" x1="-4" y1="20" x2="-4" y2="65"/>
+                <line class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
+              </template>
+              <!-- 普通细线 (默认) -->
+              <line v-else class="bar-line" x1="0" y1="20" x2="0" y2="65"/>
+            </g>
           </g>
         </g>
-      </g>
-    </svg>
+      </svg>
+    </div>
     
     <!-- Debug Panel -->
     <div v-if="debugMode" class="debug-panel">
@@ -218,7 +220,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   tune: { type: Object, default: null },
@@ -229,6 +231,7 @@ const props = defineProps({
 const emit = defineEmits(['measure-issues', 'seek-to-note'])
 
 const activeIds = computed(() => new Set(props.activeNoteIds))
+const scoreContainerRef = ref(null)
 
 // 点击音符跳转
 const onNoteClick = (note) => {
@@ -255,10 +258,45 @@ const onNoteClick = (note) => {
 const NOTE_WIDTH = 30  // 音符基础宽度
 const DASH_WIDTH = 30  // 延音线占位宽度（与数字一致）
 const MEASURE_PADDING = 20
-const MEASURES_PER_ROW = 4
 const rowHeight = 110  // 调整行高，给歌词留空间
-const measureWidth = 260 // 增大小节宽度
 const BEAT_GAP = 18 // 拍间额外间距
+
+// Dynamic Layout
+const containerWidth = ref(1100) // Default fallback
+const MIN_MEASURE_WIDTH = 240 // Minimum width for a measure to be readable
+
+const measuresPerRow = computed(() => {
+  // Ensure at least 1 measure per row
+  const count = Math.floor((containerWidth.value - 40) / MIN_MEASURE_WIDTH)
+  return Math.max(1, count)
+})
+
+const measureWidth = computed(() => {
+  // Calculate width based on container and measures per row
+  // Subtract some padding for the container itself (e.g. 40px total horizontal padding)
+  const available = Math.max(MIN_MEASURE_WIDTH, containerWidth.value - 40)
+  return Math.floor(available / measuresPerRow.value)
+})
+
+// Resize Observer
+let resizeObserver = null
+
+onMounted(() => {
+  if (scoreContainerRef.value) {
+    resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        containerWidth.value = entry.contentRect.width
+      }
+    })
+    resizeObserver.observe(scoreContainerRef.value)
+  }
+})
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
+})
 
 // Pitch mapping (diatonic)
 const KEY_ROOT_PITCH = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 }
@@ -430,7 +468,7 @@ const layoutMeasureNotes = (measure) => {
     }
   }
   
-  const availableWidth = measureWidth - startPadding - MEASURE_PADDING
+  const availableWidth = measureWidth.value - startPadding - MEASURE_PADDING
   
   // 首先按拍分组
   const beatGroups = {}
@@ -1101,10 +1139,12 @@ const computedRows = computed(() => {
   let currentRow = { measures: [], crossMeasureTies: [] }
   allMeasures.forEach((m, idx) => {
     const measureIdxInRow = currentRow.measures.length
-    currentRow.measures.push({ ...m, x: measureIdxInRow * (measureWidth + 15), globalMeasureIdx: idx }) // 增加间距
-    if ((idx + 1) % MEASURES_PER_ROW === 0) {
+    currentRow.measures.push({ ...m, x: measureIdxInRow * (measureWidth.value + 15), globalMeasureIdx: idx }) // 增加间距
+    
+    // Check if row is full
+    if (currentRow.measures.length >= measuresPerRow.value) {
       // 查找属于这一行的跨小节 tie
-      const rowStartMeasureIdx = idx - MEASURES_PER_ROW + 1
+      const rowStartMeasureIdx = idx - currentRow.measures.length + 1
       const rowEndMeasureIdx = idx
       crossMeasureTies.forEach(ct => {
         // 只添加起始和结束都在这一行的 tie
@@ -1143,8 +1183,8 @@ const computedRows = computed(() => {
 
 const svgWidth = computed(() => {
   if (computedRows.value.length === 0) return 400
-  // Fixed width based on measures per row
-  return MEASURES_PER_ROW * (measureWidth + 5) + 40
+  // Width based on measures per row
+  return measuresPerRow.value * (measureWidth.value + 15) + 40
 })
 
 const svgHeight = computed(() => {

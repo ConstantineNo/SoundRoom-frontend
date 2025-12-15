@@ -64,7 +64,6 @@
         <div 
           v-if="viewMode === 'jianpu' && visualObj" 
           class="score-wrapper" 
-          :style="scoreWrapperStyle"
         >
           <JianpuScore 
             :tune="visualObj" 
@@ -512,14 +511,6 @@ onUnmounted(() => {
 // ========== 自适应布局与缩放 ==========
 let resizeObserver = null
 
-const scoreWrapperStyle = computed(() => {
-  return {
-    transform: `scale(${scoreScale.value})`,
-    transformOrigin: 'top left',
-    width: scoreScale.value < 1 ? `${100 / scoreScale.value}%` : '100%',
-  }
-})
-
 const updateLayoutMode = (width) => {
   if (width <= BREAKPOINT_MOBILE) {
     layoutMode.value = 'mobile'
@@ -530,23 +521,12 @@ const updateLayoutMode = (width) => {
   }
 }
 
-const updateScoreScale = (width) => {
-  if (layoutMode.value === 'mobile') {
-    scoreScale.value = 1
-    return
-  }
-  const available = width - 20 // 留一点内边距
-  const scale = Math.min(1, available / IDEAL_SCORE_WIDTH)
-  scoreScale.value = scale
-}
-
 const initResizeObserver = () => {
   if (!rightPaneRef.value) return
   resizeObserver = new ResizeObserver(entries => {
     for (const entry of entries) {
       const w = entry.contentRect.width
       updateLayoutMode(w)
-      updateScoreScale(w)
     }
   })
   resizeObserver.observe(rightPaneRef.value)
@@ -554,6 +534,7 @@ const initResizeObserver = () => {
 </script>
 
 <style scoped>
+/* Base Styles (Mobile First) */
 .editor-container {
   display: flex;
   flex-direction: column;
@@ -568,7 +549,7 @@ const initResizeObserver = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 1rem;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -578,32 +559,33 @@ const initResizeObserver = () => {
 .left, .right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 .title {
   font-weight: bold;
   font-size: 1.1rem;
+  display: none; /* Hide title on small screens to save space */
 }
 
 .main-content {
   flex: 1;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column; /* Stack vertically on mobile */
+  align-items: stretch;
 }
 
 .pane {
-  padding: 20px;
+  padding: 1rem;
 }
 
+/* Left Pane (Editor) - Mobile: Top part, scrollable but limited height */
 .left-pane {
-  flex: 0 0 40%;
-  border-right: 1px solid #ddd;
+  flex: 0 0 auto;
+  height: 40vh; /* Fixed height on mobile */
+  border-bottom: 1px solid #ddd;
   display: flex;
   flex-direction: column;
-  position: sticky;
-  top: 60px;
-  height: calc(100vh - 60px);
   overflow: hidden;
   background: #282c34;
   padding: 0;
@@ -616,13 +598,13 @@ const initResizeObserver = () => {
 }
 
 .line-numbers {
-  width: 45px;
+  width: 2.8rem;
   background: #21252b;
   color: #636d83;
   font-family: 'Fira Code', 'Consolas', monospace;
-  font-size: 14px;
+  font-size: 0.875rem; /* 14px */
   line-height: 1.6;
-  padding: 16px 8px;
+  padding: 1rem 0.5rem;
   text-align: right;
   overflow: hidden;
   user-select: none;
@@ -630,7 +612,7 @@ const initResizeObserver = () => {
 }
 
 .line-number {
-  height: 22.4px; /* 14px * 1.6 */
+  height: 1.4rem; /* 14px * 1.6 */
 }
 
 .line-number.error-line {
@@ -651,27 +633,16 @@ const initResizeObserver = () => {
   font-weight: bold;
 }
 
-.right-pane {
-  flex: 1;
-  background: #fff;
-  min-height: calc(100vh - 60px);
-  display: flex;
-  flex-direction: column;
-}
-.score-wrapper {
-  transform-origin: top left;
-}
-
 .code-editor {
   flex: 1;
   width: 100%;
   min-height: 100%;
   resize: none;
   border: none;
-  padding: 16px;
-  padding-left: 12px;
+  padding: 1rem;
+  padding-left: 0.75rem;
   font-family: 'Fira Code', 'Consolas', monospace;
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.6;
   outline: none;
   background: #282c34;
@@ -682,7 +653,7 @@ const initResizeObserver = () => {
 .error-bar {
   background: #ffeded;
   color: #ff4d4f;
-  padding: 8px 16px;
+  padding: 0.5rem 1rem;
   font-size: 0.9rem;
   border-top: 1px solid #ffccc7;
 }
@@ -690,24 +661,24 @@ const initResizeObserver = () => {
 .issue-bar {
   background: #fffbe6;
   color: #d48806;
-  padding: 8px 16px;
+  padding: 0.5rem 1rem;
   font-size: 0.85rem;
   border-top: 1px solid #ffe58f;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 0.5rem;
   align-items: center;
 }
 
 .issue-title {
   font-weight: bold;
-  margin-right: 4px;
+  margin-right: 0.25rem;
 }
 
 .issue-item {
-  padding: 2px 8px;
+  padding: 0.125rem 0.5rem;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .issue-item.overflow {
@@ -720,17 +691,32 @@ const initResizeObserver = () => {
   color: #d48806;
 }
 
+/* Right Pane (Preview) - Mobile: Bottom part, takes remaining space */
+.right-pane {
+  flex: 1;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden; /* Prevent horizontal scroll of the pane itself */
+  min-height: 50vh;
+}
+
+.score-wrapper {
+  width: 100%;
+  overflow-x: auto; /* Allow score to scroll horizontally if needed */
+}
+
 .paper-container {
   flex: 1;
-  margin-top: 20px;
+  margin-top: 1.25rem;
 }
 
 .audio-container {
-  padding: 10px;
+  padding: 0.625rem;
   background: #f9f9f9;
   border-radius: 8px;
-  margin-bottom: 10px;
-  min-height: 50px;
+  margin-bottom: 0.625rem;
+  min-height: 3.125rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -738,8 +724,8 @@ const initResizeObserver = () => {
 
 .error-msg {
   color: #d03050;
-  font-size: 12px;
-  padding: 10px;
+  font-size: 0.75rem;
+  padding: 0.625rem;
 }
 
 /* Custom Scrollbar for Webkit */
@@ -773,32 +759,41 @@ const initResizeObserver = () => {
   fill: #d03050 !important;
   stroke: #d03050 !important;
 }
-
-/* ========== 响应式布局 ========== */
-.layout-mobile .main-content {
-  flex-direction: column;
-}
-.layout-mobile .left-pane {
-  position: static;
-  flex: 0 0 auto;
-  height: auto;
-  max-height: 50vh;
-}
-.layout-mobile .right-pane {
-  min-height: auto;
-}
-.layout-mobile .paper-container {
-  margin-top: 10px;
-}
-
-.layout-tablet .left-pane {
-  flex-basis: 45%;
-}
-.layout-tablet .right-pane {
-  flex-basis: 55%;
-}
 :deep(g.highlight-note path) {
   fill: #d03050 !important;
   stroke: #d03050 !important;
+}
+
+/* Tablet Breakpoint (>= 768px) */
+@media (min-width: 768px) {
+  .title {
+    display: block;
+  }
+  
+  .main-content {
+    flex-direction: row; /* Side by side */
+  }
+  
+  .left-pane {
+    flex: 0 0 45%; /* 45% width */
+    height: calc(100vh - 60px); /* Full height minus header */
+    border-bottom: none;
+    border-right: 1px solid #ddd;
+    position: sticky;
+    top: 60px;
+  }
+  
+  .right-pane {
+    flex: 1;
+    height: auto;
+    min-height: calc(100vh - 60px);
+  }
+}
+
+/* Desktop Breakpoint (>= 1200px) */
+@media (min-width: 1200px) {
+  .left-pane {
+    flex: 0 0 40%; /* 40% width */
+  }
 }
 </style>
