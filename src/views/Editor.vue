@@ -81,6 +81,7 @@
             :tune="visualObj" 
             :active-note-ids="activeNoteIds"
             :debug-mode="true"
+            :target-key="score?.song_key"
             @measure-issues="handleMeasureIssues"
             @seek-to-note="handleSeekToNote"
           />
@@ -125,6 +126,64 @@ const instrumentOptions = [
   { label: '长笛', value: 73 }
 ]
 const currentInstrument = ref(0)
+
+// Semitone map for key calculation
+const ROOT_SEMITONES = {
+  'C': 0, 'C#': 1, 'Db': 1,
+  'D': 2, 'D#': 3, 'Eb': 3,
+  'E': 4,
+  'F': 5, 'F#': 6, 'Gb': 6,
+  'G': 7, 'G#': 8, 'Ab': 8,
+  'A': 9, 'A#': 10, 'Bb': 10,
+  'B': 11
+}
+
+// 中文调名映射
+const CHINESE_KEY_MAP = {
+  '降B': 'Bb', '降E': 'Eb', '降A': 'Ab', '降D': 'Db', '降G': 'Gb',
+  '升F': 'F#', '升C': 'C#', '升G': 'G#', '升D': 'D#', '升A': 'A#',
+  'C调': 'C', 'D调': 'D', 'E调': 'E', 'F调': 'F', 'G调': 'G', 'A调': 'A', 'B调': 'B'
+}
+
+const getSemitoneOffset = (sourceKeyStr, targetKeyStr) => {
+  if (!sourceKeyStr || !targetKeyStr) return 0
+  
+  // 预处理：如果是中文调名，先转换
+  if (CHINESE_KEY_MAP[targetKeyStr]) {
+    targetKeyStr = CHINESE_KEY_MAP[targetKeyStr]
+  }
+  if (CHINESE_KEY_MAP[sourceKeyStr]) {
+    sourceKeyStr = CHINESE_KEY_MAP[sourceKeyStr]
+  }
+  
+  // Extract root (ignore mode like 'm', 'Mix', etc. for now, assume major/minor match)
+  // e.g. "Am" -> "A", "Bb" -> "Bb"
+  const getRoot = (k) => {
+    const match = k.match(/^([A-G][#b]?)/)
+    return match ? match[1] : 'C'
+  }
+
+  const sourceRoot = getRoot(sourceKeyStr)
+  const targetRoot = getRoot(targetKeyStr)
+
+  const sourceVal = ROOT_SEMITONES[sourceRoot]
+  const targetVal = ROOT_SEMITONES[targetRoot]
+
+  if (sourceVal === undefined || targetVal === undefined) {
+    console.warn(`[Editor] Unknown key root: ${sourceRoot} or ${targetRoot}`)
+    return 0
+  }
+
+  let diff = targetVal - sourceVal
+  // Normalize to reasonable range (-6 to +6 preferred, or just raw diff)
+  // e.g. C(0) to B(11) -> +11 or -1. -1 is better for reading?
+  // Actually for playback it doesn't matter much, but for staff reading:
+  // C -> Bb: -2 is better than +10.
+  if (diff > 6) diff -= 12
+  if (diff < -6) diff += 12
+  
+  return diff
+}
 
 watch(currentInstrument, () => {
   renderAbc()
@@ -318,65 +377,121 @@ const renderAbc = debounce(async () => {
   try {
     // 构造包含乐器设置的 ABC 代码
     let codeToRender = abcCode.value
+    
+    // 1. 处理乐器 (MIDI program)
     // 尝试在 K: 字段后插入 MIDI program 指令，如果没有则插在最前面
     const kMatch = codeToRender.match(/^K:.*\n/m)
+    let insertPos = 0
     if (kMatch) {
-       const insertPos = kMatch.index + kMatch[0].length
+       insertPos = kMatch.index + kMatch[0].length
        codeToRender = codeToRender.slice(0, insertPos) + `%%MIDI program ${currentInstrument.value}\n` + codeToRender.slice(insertPos)
     } else {
        codeToRender = `%%MIDI program ${currentInstrument.value}\n` + codeToRender
     }
 
-    // 1. 渲染乐谱
-    const tune = abcjs.renderAbc("paper", codeToRender, {
+    // 2. 处理移调 (Transpose)
+    // 目标调性：score.song_key (e.g. "Bb")
+    // 源调性：从 ABC 代码中解析 K: (e.g. "C")
+    let visualTranspose = 0
+    if (score.value && score.value.song_key) {
+      const sourceKeyMatch = abcCode.value.match(/^K:\s*([A-G][#b]?)/m)
+      const sourceKey = sourceKeyMatch ? sourceKeyMatch[1] : 'C'
+      const targetKey = score.value.song_key
+      
+      if (sourceKey !== targetKey) {
+        visualTranspose = getSemitoneOffset(sourceKey, targetKey)
+        console.log(`[Editor] Transposing from ${sourceKey} to ${targetKey} (offset: ${visualTranspose})`)
+      }
+    }
+
+    // 1. 渲染乐谱 (Staff - 带移调)
+    // 用于五线谱显示和音频播放
+    const tuneStaff = abcjs.renderAbc("paper", codeToRender, {
       responsive: "resize",
       add_classes: true,
-      staffwidth: 800 
+      staffwidth: 800,
+      visualTranspose: visualTranspose // 应用移调
+    })
+
+    // 2. 渲染乐谱 (Jianpu - 不带移调)
+    // 用于简谱显示，保持 1=1 的相对关系，避免八度偏移
+    // 使用 "*" 作为容器 ID 表示不渲染到 DOM，只生成对象
+    const tuneJianpu = abcjs.renderAbc("*", codeToRender, {
+      add_classes: true
     })
     
     // Inject IDs into visual object for mapping and build SVG element map
-    if (tune && tune[0]) {
+    // 我们需要同步遍历两个对象，建立映射关系
+    if (tuneStaff && tuneStaff[0] && tuneJianpu && tuneJianpu[0]) {
        let uid = 0;
        noteIdToTimingMap.clear() // 清空旧映射
        
-       tune[0].lines.forEach(line => {
-           if (line.staff) {
-               line.staff.forEach(staff => {
-                   staff.voices.forEach(voice => {
-                       voice.forEach(el => {
-                           const myId = `note_${uid++}`
-                           el._myId = myId
+       const staffLines = tuneStaff[0].lines || []
+       const jianpuLines = tuneJianpu[0].lines || []
+
+       // 假设两个 tune 结构完全一致，同步遍历
+       for (let i = 0; i < staffLines.length; i++) {
+           const staffLine = staffLines[i]
+           const jianpuLine = jianpuLines[i]
+           
+           if (staffLine.staff && jianpuLine.staff) {
+               for (let j = 0; j < staffLine.staff.length; j++) {
+                   const staffStaff = staffLine.staff[j]
+                   const jianpuStaff = jianpuLine.staff[j]
+                   
+                   if (staffStaff.voices && jianpuStaff.voices) {
+                       for (let k = 0; k < staffStaff.voices.length; k++) {
+                           const staffVoice = staffStaff.voices[k]
+                           const jianpuVoice = jianpuStaff.voices[k]
                            
-                           // 保存 abcjs 的 timing 信息，用于点击跳转
-                           if (el.midiPitches || el.startTiming !== undefined) {
-                             noteIdToTimingMap.set(myId, {
-                               midiPitches: el.midiPitches,
-                               startTiming: el.startTiming,
-                               duration: el.duration
-                             })
-                           }
-                           
-                           // 建立 SVG 元素到 _myId 的映射
-                           // abcjs 在每个元素上存储了 abselem，其中包含 SVG 元素引用
-                           if (el.abselem && el.abselem.elemset) {
-                             el.abselem.elemset.forEach(svgEl => {
-                               if (svgEl) {
-                                 elemToIdMap.set(svgEl, myId)
+                           if (staffVoice && jianpuVoice) {
+                               for (let m = 0; m < staffVoice.length; m++) {
+                                   const staffEl = staffVoice[m]
+                                   const jianpuEl = jianpuVoice[m]
+                                   
+                                   const myId = `note_${uid++}`
+                                   
+                                   // 给简谱元素注入 ID (用于 JianpuScore 渲染和高亮匹配)
+                                   if (jianpuEl) {
+                                       jianpuEl._myId = myId
+                                   }
+                                   
+                                   if (staffEl) {
+                                       // 保存 abcjs 的 timing 信息，用于点击跳转
+                                       // 使用 staffEl 的信息，因为它对应播放器
+                                       if (staffEl.midiPitches || staffEl.startTiming !== undefined) {
+                                         noteIdToTimingMap.set(myId, {
+                                           midiPitches: staffEl.midiPitches,
+                                           startTiming: staffEl.startTiming,
+                                           duration: staffEl.duration
+                                         })
+                                       }
+                                       
+                                       // 建立 SVG 元素到 _myId 的映射
+                                       // abcjs 在每个元素上存储了 abselem，其中包含 SVG 元素引用
+                                       if (staffEl.abselem && staffEl.abselem.elemset) {
+                                         staffEl.abselem.elemset.forEach(svgEl => {
+                                           if (svgEl) {
+                                             elemToIdMap.set(svgEl, myId)
+                                           }
+                                         })
+                                       }
+                                   }
                                }
-                             })
                            }
-                       })
-                   })
-               })
+                       }
+                   }
+               }
            }
-       })
-       visualObj.value = tune[0]
+       }
+       // 简谱组件使用未移调的对象
+       visualObj.value = tuneJianpu[0]
     } else {
         visualObj.value = null
     }
 
     // 2. 检查是否生成了有效的乐谱对象
-    if (!tune || !tune[0]) {
+    if (!tuneStaff || !tuneStaff[0]) {
       console.warn("渲染未能生成有效的 Tune 对象")
       return
     }
@@ -401,9 +516,12 @@ const renderAbc = debounce(async () => {
 
       try {
         // C. 设置曲目
-        await synthControl.setTune(tune[0], true, {
+        // 注意：visualTranspose 通常只影响视觉，不影响 midiPitches
+        // 所以我们需要显式传入 midiTranspose 以确保音频也移调
+        await synthControl.setTune(tuneStaff[0], true, {
           chordsOff: true,
-          soundFontUrl: "/soundfonts/FluidR3_GM/"
+          soundFontUrl: "/soundfonts/FluidR3_GM/",
+          midiTranspose: visualTranspose
         })
         
         console.log("音频初始化完成")

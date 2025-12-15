@@ -225,7 +225,8 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 const props = defineProps({
   tune: { type: Object, default: null },
   activeNoteIds: { type: Array, default: () => [] },
-  debugMode: { type: Boolean, default: false }
+  debugMode: { type: Boolean, default: false },
+  targetKey: { type: String, default: '' }
 })
 
 const emit = defineEmits(['measure-issues', 'seek-to-note'])
@@ -598,6 +599,20 @@ const layoutMeasureNotes = (measure) => {
 
 // Computed displays
 const keyDisplay = computed(() => {
+  // 优先使用传入的 targetKey
+  if (props.targetKey) {
+    // 处理中文调名映射
+    const map = {
+      '降B': '♭B', '降E': '♭E', '降A': '♭A', '降D': '♭D', '降G': '♭G',
+      '升F': '#F', '升C': '#C', '升G': '#G', '升D': '#D', '升A': '#A',
+      'Bb': '♭B', 'Eb': '♭E', 'Ab': '♭A', 'Db': '♭D', 'Gb': '♭G',
+      'F#': '#F', 'C#': '#C', 'G#': '#G', 'D#': '#D', 'A#': '#A'
+    }
+    // 如果是纯字母（如 "Bb"），尝试映射；如果是中文（如 "降B"），也尝试映射
+    // 如果映射不到，就直接显示（比如 "C", "G"）
+    return map[props.targetKey] || props.targetKey
+  }
+
   const k = props.tune?.lines?.[0]?.staff?.[0]?.key
   if (!k) return 'C'
   let s = k.root || 'C'
