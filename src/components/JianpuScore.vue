@@ -1004,14 +1004,14 @@ const computedRows = computed(() => {
   const crossMeasureSlurs = [] // 收集跨小节的 slur 信息
 
   // 第一步：先遍历一遍计算总时长，用于进度条计算（虽然abcjs有，但这里简单累加更便于控制）
-  let totalDur = 0
+  // 注意：这里计算的是书面(Written)总时长，后续会根据重复记号更新为演奏(Played)总时长
+  let writtenDuration = 0
   props.tune.lines.forEach(line => {
     if (line.staff) line.staff.forEach(s => s.voices.forEach(v => v.forEach(el => {
-      if (el.el_type === 'note' && el.duration) totalDur += el.duration
+      if (el.el_type === 'note' && el.duration) writtenDuration += el.duration
     })))
   })
-  tuneDuration.value = totalDur || 1
-
+  
   // 辅助：生成横线 (Beams)
   // 根据拍组内的音符时值，生成合并的下划线
   // 规则：
@@ -1240,8 +1240,8 @@ const computedRows = computed(() => {
                  note.relativeStartTime = beatPosition
                  // 只有第一个休止符携带歌词（如果有）
                  if (idx === 0) note.lyric = lyric
-                 note.timePercent = currentAccumulatedDuration / tuneDuration.value
-                 note.absoluteTime = currentAccumulatedDuration
+                 note.timePercent = 0 // 后处理计算
+                 note.absoluteTime = 0 // 后处理计算
                  
                  currentMeasure.notes.push(note)
                  beatPosition += note.duration
@@ -1276,8 +1276,8 @@ const computedRows = computed(() => {
                  endTriplet: el.endTriplet,
                  lyric: lyric,
                  relativeStartTime: beatPosition,
-                 timePercent: currentAccumulatedDuration / tuneDuration.value,
-                 absoluteTime: currentAccumulatedDuration,
+                 timePercent: 0, // 将在后处理中计算
+                 absoluteTime: 0, // 将在后处理中计算
                  graceNotes: graceNotesData.length > 0 ? graceNotesData : null // 倚音数据
                }
                
@@ -1368,6 +1368,65 @@ const computedRows = computed(() => {
       layoutMeasureWithBeams(currentMeasure)
       allMeasures.push(currentMeasure)
   }
+
+  // ==========================================================
+  // 核心修复：展开重复小节，计算正确的播放时间 (Unfolding Repeats)
+  // ==========================================================
+  const playedIndices = []
+  let repeatStart = 0
+  for (let i = 0; i < allMeasures.length; i++) {
+    const m = allMeasures[i]
+    playedIndices.push(i)
+    
+    // 检查重复开始 (Start Repeat)
+    // 注意：pendingStartBarType 逻辑已经将 bar_dbl_repeat 处理为当前小节的 bar_right_repeat 和下一小节的 bar_left_repeat
+    // 所以这里只需要检查 startBarType
+    if (m.startBarType === 'bar_left_repeat') {
+      repeatStart = i
+    }
+    
+    // 检查重复结束 (End Repeat)
+    if (m.barType === 'bar_right_repeat') {
+      // 重复 [repeatStart, i] 区间
+      for (let k = repeatStart; k <= i; k++) {
+        playedIndices.push(k)
+      }
+      // 重置 repeatStart 为下一小节，避免嵌套混乱（简单处理）
+      repeatStart = i + 1
+    }
+  }
+
+  // 计算每个小节在播放序列中的起始时间
+  // 我们需要将“书面小节”映射到其“首次播放时间”
+  let currentAudioTime = 0
+  // 先重置所有小节的 audioStartTime
+  allMeasures.forEach(m => {
+      m.audioStartTime = undefined
+  })
+
+  playedIndices.forEach(idx => {
+      const m = allMeasures[idx]
+      // 记录该小节的首次播放时间
+      if (m.audioStartTime === undefined) {
+          m.audioStartTime = currentAudioTime
+      }
+      currentAudioTime += m.totalDuration
+  })
+  
+  // 更新总时长为展开后的时长
+  const unfoldedDuration = currentAudioTime || 1
+  tuneDuration.value = unfoldedDuration
+
+  // 更新所有音符的 absoluteTime 和 timePercent
+  allMeasures.forEach(m => {
+      // 如果某个小节从未被播放（理论上不应该发生，除非逻辑错误），默认为0
+      const baseTime = m.audioStartTime !== undefined ? m.audioStartTime : 0
+      
+      m.notes.forEach(note => {
+          note.absoluteTime = baseTime + note.relativeStartTime
+          note.timePercent = note.absoluteTime / unfoldedDuration
+      })
+  })
 
   // ==========================================================
   // 新增：后处理，为段落的首尾小节添加括号标志
