@@ -18,6 +18,36 @@
           <template v-for="(crossTie, ctIdx) in row.crossMeasureTies" :key="'ct'+ctIdx">
             <path class="tie-line" :d="getCrossMeasureTiePath(crossTie, row.measures)" />
           </template>
+
+          <!-- Cross-measure slurs (跨小节圆滑线) -->
+          <template v-for="(crossSlur, csIdx) in row.crossMeasureSlurs" :key="'cs'+csIdx">
+            <path class="slur-line" :d="getCrossMeasureSlurPath(crossSlur, row.measures)" />
+          </template>
+
+          <!-- Outgoing Ties (行末连出) -->
+          <template v-for="(outTie, otIdx) in row.outgoingTies" :key="'ot'+otIdx">
+            <path class="tie-line" :d="getOutgoingTiePath(outTie, row.measures, rowWidth)" />
+          </template>
+          
+          <!-- Incoming Ties (行首连入) -->
+          <template v-for="(inTie, itIdx) in row.incomingTies" :key="'it'+itIdx">
+            <path class="tie-line" :d="getIncomingTiePath(inTie, row.measures)" />
+          </template>
+
+          <!-- Outgoing Slurs (行末圆滑线) -->
+          <template v-for="(outSlur, osIdx) in row.outgoingSlurs" :key="'os'+osIdx">
+            <path class="slur-line" :d="getOutgoingSlurPath(outSlur, row.measures, rowWidth)" />
+          </template>
+          
+          <!-- Incoming Slurs (行首圆滑线) -->
+          <template v-for="(inSlur, isIdx) in row.incomingSlurs" :key="'is'+isIdx">
+            <path class="slur-line" :d="getIncomingSlurPath(inSlur, row.measures)" />
+          </template>
+
+          <!-- Through Slurs (整行贯穿圆滑线) -->
+          <template v-for="(throughSlur, tsIdx) in row.throughSlurs" :key="'ts'+tsIdx">
+            <path class="slur-line" :d="getThroughSlurPath(throughSlur, row.measures)" />
+          </template>
           
           <!-- Measures in this row -->
           <g v-for="(measure, mIdx) in row.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
@@ -100,7 +130,14 @@
                 </template>
 
                 <!-- Lyric -->
-                <text v-if="note.lyric" class="lyric-text" :x="config.NOTE_WIDTH / 2" y="90">{{ note.lyric }}</text>
+                <template v-if="note.lyric && note.lyric.length > 0">
+                  <text v-for="(line, lIdx) in note.lyric" :key="'ly'+lIdx" 
+                        class="lyric-text" 
+                        :x="config.NOTE_WIDTH / 2" 
+                        :y="90 + lIdx * 20">
+                    {{ line }}
+                  </text>
+                </template>
                 
                 <!-- Grace notes group (倚音组，显示在主音符左上角，微型字符上标样式) -->
                 <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-container">
@@ -738,6 +775,204 @@ const getCrossMeasureTiePath = (crossTie, measures) => {
   
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
+  
+// Calculate flat-top slur path (平顶圆滑线)
+const getFlatSlurPath = (x1, x2, y) => {
+  const h = 15 // Height of the arc
+  const r = 15 // Radius of the corner
+  const topY = y - h
+  
+  // If distance is too short, fallback to regular curve
+  if (Math.abs(x2 - x1) < 2 * r) {
+    const midX = (x1 + x2) / 2
+    const thickness = 1.5
+    return `M ${x1} ${y} Q ${midX} ${topY} ${x2} ${y} Q ${midX} ${topY + thickness} ${x1} ${y} Z`
+  }
+  
+  const thickness = 1.5
+  
+  // Path: Start -> Curve Up-Right -> Line Right -> Curve Down-Right -> End
+  // Inner path (top edge)
+  // M x1 y
+  // Q x1 topY (x1+r) topY  (Left corner)
+  // L (x2-r) topY          (Top flat line)
+  // Q x2 topY x2 y         (Right corner)
+  
+  // Outer path (bottom edge, for thickness) - reverse direction
+  // Q x2 (topY+thickness) (x2-r) (topY+thickness)
+  // L (x1+r) (topY+thickness)
+  // Q x1 (topY+thickness) x1 y
+  
+  return `M ${x1} ${y} 
+          Q ${x1} ${topY} ${x1 + r} ${topY} 
+          L ${x2 - r} ${topY} 
+          Q ${x2} ${topY} ${x2} ${y} 
+          Q ${x2} ${topY + thickness} ${x2 - r} ${topY + thickness} 
+          L ${x1 + r} ${topY + thickness} 
+          Q ${x1} ${topY + thickness} ${x1} ${y} Z`
+}
+
+// Calculate outgoing flat slur path (行末连出 - 平顶)
+const getOutgoingFlatSlurPath = (x1, rowEndX, y) => {
+  const h = 15
+  const r = 15
+  const topY = y - h
+  const thickness = 1.5
+  
+  // If distance is short
+  if (Math.abs(rowEndX - x1) < r) {
+     // Just a curve up
+     return `M ${x1} ${y} Q ${x1} ${topY} ${rowEndX} ${topY} L ${rowEndX} ${topY+thickness} Q ${x1} ${topY+thickness} ${x1} ${y} Z`
+  }
+
+  return `M ${x1} ${y} 
+          Q ${x1} ${topY} ${x1 + r} ${topY} 
+          L ${rowEndX} ${topY} 
+          L ${rowEndX} ${topY + thickness} 
+          L ${x1 + r} ${topY + thickness} 
+          Q ${x1} ${topY + thickness} ${x1} ${y} Z`
+}
+
+// Calculate incoming flat slur path (行首连入 - 平顶)
+const getIncomingFlatSlurPath = (rowStartX, x2, y) => {
+  const h = 15
+  const r = 15
+  const topY = y - h
+  const thickness = 1.5
+  
+  if (Math.abs(x2 - rowStartX) < r) {
+     return `M ${rowStartX} ${topY} Q ${x2} ${topY} ${x2} ${y} Q ${x2} ${topY+thickness} ${rowStartX} ${topY+thickness} Z`
+  }
+
+  return `M ${rowStartX} ${topY} 
+          L ${x2 - r} ${topY} 
+          Q ${x2} ${topY} ${x2} ${y} 
+          Q ${x2} ${topY + thickness} ${x2 - r} ${topY + thickness} 
+          L ${rowStartX} ${topY + thickness} Z`
+}
+
+// Calculate through flat slur path (整行贯穿 - 平顶)
+const getThroughFlatSlurPath = (rowStartX, rowEndX, y) => {
+  const h = 15
+  const topY = y - h
+  const thickness = 1.5
+  
+  return `M ${rowStartX} ${topY} L ${rowEndX} ${topY} L ${rowEndX} ${topY + thickness} L ${rowStartX} ${topY + thickness} Z`
+}
+
+// Calculate cross-measure slur path (跨小节圆滑线) - Updated to use Flat Top
+const getCrossMeasureSlurPath = (crossSlur, measures) => {
+  if (!crossSlur || !measures) return ''
+  
+  const startMeasure = measures[crossSlur.startMeasureIdx]
+  const endMeasure = measures[crossSlur.endMeasureIdx]
+  
+  if (!startMeasure || !endMeasure) return ''
+  
+  const startNote = startMeasure.notes[crossSlur.startNoteIdx]
+  const endNote = endMeasure.notes[crossSlur.endNoteIdx]
+  
+  if (!startNote || !endNote) return ''
+  
+  const x1 = startMeasure.x + startNote.x + config.value.NOTE_WIDTH / 2
+  const x2 = endMeasure.x + endNote.x + config.value.NOTE_WIDTH / 2
+  const y = 18 
+  
+  return getFlatSlurPath(x1, x2, y)
+}
+
+// Calculate outgoing tie path (行末连出) - Updated for Slur to use Flat Top
+const getOutgoingSlurPath = (slur, measures, rowWidth) => {
+  if (!slur || !measures) return ''
+  const startMeasure = measures[slur.startMeasureIdx]
+  if (!startMeasure) return ''
+  const startNote = startMeasure.notes[slur.startNoteIdx]
+  if (!startNote) return ''
+
+  const x1 = startMeasure.x + startNote.x + config.value.NOTE_WIDTH / 2
+  // End at the end of the ROW, not just the measure
+  // We need the total width of the row content.
+  // rowWidth passed from template is usually svgWidth or calculated row width.
+  // Let's assume rowWidth is the visual width of the row.
+  // If rowWidth is not accurate, we can use the last measure's end.
+  const lastMeasure = measures[measures.length - 1]
+  const rowEndX = lastMeasure.x + measureWidth.value + 10 // Extend a bit
+  
+  const y = 18
+  return getOutgoingFlatSlurPath(x1, rowEndX, y)
+}
+
+// Calculate incoming tie path (行首连入) - Updated for Slur to use Flat Top
+const getIncomingSlurPath = (slur, measures) => {
+  if (!slur || !measures) return ''
+  const endMeasure = measures[slur.endMeasureIdx]
+  if (!endMeasure) return ''
+  const endNote = endMeasure.notes[slur.endNoteIdx]
+  if (!endNote) return ''
+
+  // Start from left of the row
+  const firstMeasure = measures[0]
+  const rowStartX = firstMeasure.x - 10 // Start a bit before
+  
+  const x2 = endMeasure.x + endNote.x + config.value.NOTE_WIDTH / 2
+  const y = 18
+
+  return getIncomingFlatSlurPath(rowStartX, x2, y)
+}
+
+// Calculate through slur path (整行贯穿)
+const getThroughSlurPath = (slur, measures) => {
+  if (!measures || measures.length === 0) return ''
+  const firstMeasure = measures[0]
+  const lastMeasure = measures[measures.length - 1]
+  
+  const rowStartX = firstMeasure.x - 10
+  const rowEndX = lastMeasure.x + measureWidth.value + 10
+  const y = 18
+  
+  return getThroughFlatSlurPath(rowStartX, rowEndX, y)
+}
+
+// Keep original Tie paths (Curved)
+const getOutgoingTiePath = (tie, measures, rowWidth) => {
+  if (!tie || !measures) return ''
+  const startMeasure = measures[tie.startMeasureIdx]
+  if (!startMeasure) return ''
+  const startNote = startMeasure.notes[tie.startNoteIdx]
+  if (!startNote) return ''
+
+  const x1 = startMeasure.x + startNote.x + config.value.NOTE_WIDTH / 2
+  const lastMeasure = measures[measures.length - 1]
+  const x2 = lastMeasure.x + measureWidth.value + 10 
+  
+  const y = 22
+  const midX = (x1 + x2) / 2
+  const distance = Math.abs(x2 - x1)
+  const h = Math.min(10, Math.max(5, distance * 0.15))
+  const thickness = 1.5 + Math.min(2, distance * 0.04)
+
+  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+}
+
+const getIncomingTiePath = (tie, measures) => {
+  if (!tie || !measures) return ''
+  const endMeasure = measures[tie.endMeasureIdx]
+  if (!endMeasure) return ''
+  const endNote = endMeasure.notes[tie.endNoteIdx]
+  if (!endNote) return ''
+
+  const firstMeasure = measures[0]
+  const x1 = firstMeasure.x - 10
+  const x2 = endMeasure.x + endNote.x + config.value.NOTE_WIDTH / 2
+  
+  const y = 22
+  const midX = (x1 + x2) / 2
+  const distance = Math.abs(x2 - x1)
+  const h = Math.min(10, Math.max(5, distance * 0.15))
+  const thickness = 1.5 + Math.min(2, distance * 0.04)
+
+  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+}
 
 // Main computation
 const totalNotes = ref(0)
@@ -766,6 +1001,7 @@ const computedRows = computed(() => {
   let currentAccumulatedDuration = 0
   const globalNotes = []  // 用于跨小节连音线
   const crossMeasureTies = [] // 收集跨小节的 tie 信息
+  const crossMeasureSlurs = [] // 收集跨小节的 slur 信息
 
   // 第一步：先遍历一遍计算总时长，用于进度条计算（虽然abcjs有，但这里简单累加更便于控制）
   let totalDur = 0
@@ -828,7 +1064,7 @@ const computedRows = computed(() => {
              count++
           } else {
              // 结束一段
-             if (startNote && endNote && count >= 2) {
+             if (startNote && endNote && count >= 1) {
                measure.beams.push({
                  x1: 0,
                  x2: 0,
@@ -843,7 +1079,7 @@ const computedRows = computed(() => {
           }
         }
         // 尾部检查
-        if (startNote && endNote && count >= 2) {
+        if (startNote && endNote && count >= 1) {
            measure.beams.push({
              x1: 0, x2: 0, y: 58 + levelIdx * 5,
              startID: startNote.id, endID: endNote.id
@@ -973,7 +1209,7 @@ const computedRows = computed(() => {
             noteCount++
             const duration = el.duration || 0.25
             // abcjs 歌词可能在 syllable 或 content 字段
-            const lyric = el.lyric ? el.lyric.map(l => l.syllable || l.content || '').join('') : null
+            const lyric = el.lyric ? el.lyric.map(l => l.syllable || l.content || '') : []
             
             // Grace notes - 收集倚音信息，稍后附加到主音符上
             let graceNotesData = []
@@ -1081,6 +1317,14 @@ const computedRows = computed(() => {
                if (noteObj.hasSlurEnd && inSlur && slurStartInfo) {
                  if (slurStartInfo.measureIdx === currentMeasureIdx) {
                    currentMeasure.slurs.push({ startIdx: slurStartInfo.noteIdx, endIdx: noteIndex })
+                 } else {
+                   // Cross-measure slur
+                   crossMeasureSlurs.push({
+                     startMeasureIdx: slurStartInfo.measureIdx,
+                     startNoteIdx: slurStartInfo.noteIdx,
+                     endMeasureIdx: currentMeasureIdx,
+                     endNoteIdx: noteIndex
+                   })
                  }
                  inSlur = false
                  slurStartInfo = null
@@ -1178,7 +1422,7 @@ const computedRows = computed(() => {
   // Group Rows
   // 重置
   const rows = []
-  let currentRow = { measures: [], crossMeasureTies: [] }
+  let currentRow = { measures: [], crossMeasureTies: [], crossMeasureSlurs: [], outgoingTies: [], incomingTies: [], outgoingSlurs: [], incomingSlurs: [], throughSlurs: [] }
   allMeasures.forEach((m, idx) => {
     const measureIdxInRow = currentRow.measures.length
     currentRow.measures.push({ ...m, x: measureIdxInRow * (measureWidth.value + config.value.MEASURE_GAP), globalMeasureIdx: idx }) // 增加间距
@@ -1188,33 +1432,136 @@ const computedRows = computed(() => {
       // 查找属于这一行的跨小节 tie
       const rowStartMeasureIdx = idx - currentRow.measures.length + 1
       const rowEndMeasureIdx = idx
+      
       crossMeasureTies.forEach(ct => {
-        // 只添加起始和结束都在这一行的 tie
-        if (ct.startMeasureIdx >= rowStartMeasureIdx && ct.endMeasureIdx <= rowEndMeasureIdx) {
+        const s = ct.startMeasureIdx
+        const e = ct.endMeasureIdx
+        // Case 1: Fully inside row
+        if (s >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
           currentRow.crossMeasureTies.push({
-            startMeasureIdx: ct.startMeasureIdx - rowStartMeasureIdx,
+            startMeasureIdx: s - rowStartMeasureIdx,
             startNoteIdx: ct.startNoteIdx,
-            endMeasureIdx: ct.endMeasureIdx - rowStartMeasureIdx,
+            endMeasureIdx: e - rowStartMeasureIdx,
             endNoteIdx: ct.endNoteIdx
           })
         }
+        // Case 2: Starts in row, ends later (Outgoing)
+        else if (s >= rowStartMeasureIdx && s <= rowEndMeasureIdx && e > rowEndMeasureIdx) {
+           currentRow.outgoingTies.push({
+             startMeasureIdx: s - rowStartMeasureIdx,
+             startNoteIdx: ct.startNoteIdx,
+             pitch: ct.pitch
+           })
+        }
+        // Case 3: Starts before, ends in row (Incoming)
+        else if (s < rowStartMeasureIdx && e >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
+           currentRow.incomingTies.push({
+             endMeasureIdx: e - rowStartMeasureIdx,
+             endNoteIdx: ct.endNoteIdx,
+             pitch: ct.pitch
+           })
+        }
+      })
+      
+      // 查找属于这一行的跨小节 slur
+      crossMeasureSlurs.forEach(cs => {
+        const s = cs.startMeasureIdx
+        const e = cs.endMeasureIdx
+        if (s >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
+          currentRow.crossMeasureSlurs.push({
+            startMeasureIdx: s - rowStartMeasureIdx,
+            startNoteIdx: cs.startNoteIdx,
+            endMeasureIdx: e - rowStartMeasureIdx,
+            endNoteIdx: cs.endNoteIdx
+          })
+        }
+        // Case 2: Starts in row, ends later (Outgoing)
+        else if (s >= rowStartMeasureIdx && s <= rowEndMeasureIdx && e > rowEndMeasureIdx) {
+           currentRow.outgoingSlurs.push({
+             startMeasureIdx: s - rowStartMeasureIdx,
+             startNoteIdx: cs.startNoteIdx
+           })
+        }
+        // Case 3: Starts before, ends in row (Incoming)
+        else if (s < rowStartMeasureIdx && e >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
+           currentRow.incomingSlurs.push({
+             endMeasureIdx: e - rowStartMeasureIdx,
+             endNoteIdx: cs.endNoteIdx
+           })
+        }
+        // Case 4: Starts before, ends after (Through)
+        else if (s < rowStartMeasureIdx && e > rowEndMeasureIdx) {
+           currentRow.throughSlurs.push({
+             // No specific note needed, just draw across
+           })
+        }
       })
       rows.push(currentRow)
-      currentRow = { measures: [], crossMeasureTies: [] }
+      currentRow = { measures: [], crossMeasureTies: [], crossMeasureSlurs: [], outgoingTies: [], incomingTies: [], outgoingSlurs: [], incomingSlurs: [], throughSlurs: [] }
     }
   })
   if (currentRow.measures.length > 0) {
     // 查找属于这一行的跨小节 tie
     const rowStartMeasureIdx = allMeasures.length - currentRow.measures.length
     const rowEndMeasureIdx = allMeasures.length - 1
+    
     crossMeasureTies.forEach(ct => {
-      if (ct.startMeasureIdx >= rowStartMeasureIdx && ct.endMeasureIdx <= rowEndMeasureIdx) {
+      const s = ct.startMeasureIdx
+      const e = ct.endMeasureIdx
+      if (s >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
         currentRow.crossMeasureTies.push({
-          startMeasureIdx: ct.startMeasureIdx - rowStartMeasureIdx,
+          startMeasureIdx: s - rowStartMeasureIdx,
           startNoteIdx: ct.startNoteIdx,
-          endMeasureIdx: ct.endMeasureIdx - rowStartMeasureIdx,
+          endMeasureIdx: e - rowStartMeasureIdx,
           endNoteIdx: ct.endNoteIdx
         })
+      }
+      // Case 2: Starts in row, ends later (Outgoing) - Last row shouldn't have outgoing usually unless incomplete score
+      else if (s >= rowStartMeasureIdx && s <= rowEndMeasureIdx && e > rowEndMeasureIdx) {
+           currentRow.outgoingTies.push({
+             startMeasureIdx: s - rowStartMeasureIdx,
+             startNoteIdx: ct.startNoteIdx,
+             pitch: ct.pitch
+           })
+      }
+      // Case 3: Starts before, ends in row (Incoming)
+      else if (s < rowStartMeasureIdx && e >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
+           currentRow.incomingTies.push({
+             endMeasureIdx: e - rowStartMeasureIdx,
+             endNoteIdx: ct.endNoteIdx,
+             pitch: ct.pitch
+           })
+      }
+    })
+    // 查找属于这一行的跨小节 slur
+    crossMeasureSlurs.forEach(cs => {
+      const s = cs.startMeasureIdx
+      const e = cs.endMeasureIdx
+      if (s >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
+        currentRow.crossMeasureSlurs.push({
+          startMeasureIdx: s - rowStartMeasureIdx,
+          startNoteIdx: cs.startNoteIdx,
+          endMeasureIdx: e - rowStartMeasureIdx,
+          endNoteIdx: cs.endNoteIdx
+        })
+      }
+      // Case 2: Starts in row, ends later (Outgoing)
+      else if (s >= rowStartMeasureIdx && s <= rowEndMeasureIdx && e > rowEndMeasureIdx) {
+           currentRow.outgoingSlurs.push({
+             startMeasureIdx: s - rowStartMeasureIdx,
+             startNoteIdx: cs.startNoteIdx
+           })
+      }
+      // Case 3: Starts before, ends in row (Incoming)
+      else if (s < rowStartMeasureIdx && e >= rowStartMeasureIdx && e <= rowEndMeasureIdx) {
+           currentRow.incomingSlurs.push({
+             endMeasureIdx: e - rowStartMeasureIdx,
+             endNoteIdx: cs.endNoteIdx
+           })
+      }
+      // Case 4: Starts before, ends after (Through)
+      else if (s < rowStartMeasureIdx && e > rowEndMeasureIdx) {
+           currentRow.throughSlurs.push({})
       }
     })
     rows.push(currentRow)
