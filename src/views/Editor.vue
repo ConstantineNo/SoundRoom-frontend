@@ -653,12 +653,23 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 彻底清理音频控制器，停止播放并释放资源
   if (synthControl) {
+    try {
+      synthControl.disable(true) // 停止播放并清理事件监听
+    } catch (e) {
+      console.warn('[Editor] 清理 synthControl 时出错:', e)
+    }
     synthControl = null
   }
+  // 清理 ResizeObserver
   if (resizeObserver) {
     resizeObserver.disconnect()
+    resizeObserver = null
   }
+  // 清理映射表
+  elemToIdMap.clear()
+  noteIdToTimingMap.clear()
 })
 
 // ========== 自适应布局与缩放 ==========

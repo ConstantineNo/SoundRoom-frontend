@@ -1107,16 +1107,23 @@ const computedRows = computed(() => {
         if (currentGroup) {
           currentGroup.endNote = note
           // Finalize group
-           // Calculate coords based on notes
-           // startX = startNote.x + 5
-           // endX = endNote.x + width - 5
-           const s = currentGroup.startNote
-           const e = currentGroup.endNote
-           measure.tripletGroups.push({
-             startX: s.x + 5,
-             endX: e.x + (e.displayWidth > 20 ? 25 : e.displayWidth - 5)
-           })
-           currentGroup = null
+          // Calculate coords based on notes
+          // startX = startNote.x + 5
+          // endX = endNote.x + width - 5
+          const s = currentGroup.startNote
+          const e = currentGroup.endNote
+          
+          // 安全检查：确保 startNote 和 endNote 都存在且有有效的 x 坐标
+          // 防止嵌套三连音或格式错误的 ABC 导致的状态错乱
+          if (s && e && typeof s.x === 'number' && typeof e.x === 'number') {
+            measure.tripletGroups.push({
+              startX: s.x + 5,
+              endX: e.x + (e.displayWidth > 20 ? 25 : e.displayWidth - 5)
+            })
+          } else {
+            console.warn('[JianpuScore] 三连音组数据不完整，跳过渲染:', { s, e })
+          }
+          currentGroup = null
         }
       }
     })
