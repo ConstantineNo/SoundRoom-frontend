@@ -5,9 +5,21 @@
        <div class="view-switcher">
           <button 
             class="switch-btn" 
-            :class="{ active: viewMode === 'score' }"
-            @click="viewMode = 'score'">
-            🎼 曲谱
+            :class="{ active: viewMode === 'image' }"
+            @click="viewMode = 'image'">
+            🖼 图片曲谱
+          </button>
+          <button 
+            class="switch-btn" 
+            :class="{ active: viewMode === 'jianpu' }"
+            @click="viewMode = 'jianpu'">
+            𝄞 动态简谱
+          </button>
+          <button 
+            class="switch-btn" 
+            :class="{ active: viewMode === 'staff' }"
+            @click="viewMode = 'staff'">
+            🎼 动态五线谱
           </button>
           <button 
             class="switch-btn" 
@@ -23,18 +35,45 @@
 
     <!-- Center Stage -->
     <div class="score-stage" ref="scoreContainer" 
-         @wheel.prevent="viewMode === 'score' ? handleZoom($event) : null" 
-         @mousedown="viewMode === 'score' ? startDrag($event) : null" 
-         @mousemove="viewMode === 'score' ? onDrag($event) : null" 
+         @wheel.prevent="viewMode === 'image' ? handleZoom($event) : null" 
+         @mousedown="viewMode === 'image' ? startDrag($event) : null" 
+         @mousemove="viewMode === 'image' ? onDrag($event) : null" 
          @mouseup="stopDrag" 
          @mouseleave="stopDrag">
       
-      <!-- Mode: Score -->
-      <div v-show="viewMode === 'score'" class="stage-content score-mode">
+      <!-- Mode: 图片曲谱 -->
+      <div v-show="viewMode === 'image'" class="stage-content score-mode">
         <div v-if="score" class="score-wrapper" :style="scoreStyle">
           <img :src="getScoreImageUrl(score.image_path)" class="score-image" draggable="false" />
         </div>
         <div v-else class="loading-text">Loading score...</div>
+      </div>
+
+      <!-- Mode: 动态简谱 -->
+      <div v-if="viewMode === 'jianpu'" class="stage-content analysis-mode">
+        <div class="stage-inner jianpu-mode" ref="jianpuContainer">
+          <JianpuRenderer
+            v-if="visualObj && score"
+            :tune="visualObj"
+            :active-note-ids="abcActiveNoteIds"
+            :target-key="score.song_key"
+            :debug-mode="false"
+            @seek-to-note="onJianpuSeek"
+          />
+          <div v-else class="loading-text">暂无 ABC 乐谱，无法显示动态简谱</div>
+        </div>
+      </div>
+
+      <!-- Mode: 动态五线谱 -->
+      <div v-if="viewMode === 'staff'" class="stage-content analysis-mode">
+        <div class="stage-inner staff-mode" ref="staffContainer">
+          <StaffRenderer
+            v-if="abcCode"
+            :abc-code="abcCode"
+            :active-note-ids="abcActiveNoteIds"
+          />
+          <div v-else class="loading-text">暂无 ABC 乐谱，无法显示五线谱</div>
+        </div>
       </div>
 
       <!-- Mode: Analysis (Spectrogram) -->
@@ -122,10 +161,16 @@ import { useUserStore } from '../stores/user'
 import MetronomePanel from '../components/MetronomePanel.vue'
 import SpectrogramVisualizer from '../components/SpectrogramVisualizer.vue'
 import PerfMonitor from '../components/debug/PerfMonitor.vue'
+import ImageRenderer from '../components/Score/ImageRenderer.vue'
+import JianpuRenderer from '../components/Score/JianpuRenderer.vue'
+import StaffRenderer from '../components/Score/StaffRenderer.vue'
+import { useScoreData } from '../composables/useScoreData'
+import { useAbcRenderer } from '../composables/useAbcRenderer'
 
 const route = useRoute()
 const scoreId = route.params.scoreId
-const score = ref(null)
+// 使用通用曲谱加载逻辑
+const { score, fetchScore } = useScoreData()
 const wavesurfer = ref(null)
 const isPlaying = ref(false)
 const isRecording = ref(false)
@@ -140,7 +185,7 @@ const PERF_WINDOW = 300
 
 // UI State
 const isRackCollapsed = ref(window.innerWidth < 768)
-const viewMode = ref('score') // 'score' | 'analysis'
+const viewMode = ref('image') // 'image' | 'jianpu' | 'staff' | 'analysis'
 
 // Zoom & Pan State
 const scale = ref(1)
@@ -181,14 +226,14 @@ const scoreStyle = computed(() => ({
   transition: isDragging.value ? 'none' : 'transform 0.1s ease-out'
 }))
 
-const fetchScore = async () => {
-  try {
-    const response = await axios.get(`/api/scores/${scoreId}`)
-    score.value = response.data
-    initWaveSurfer(score.value.audio_path)
-  } catch (error) {
-    message.error('加载曲谱失败')
-  }
+// ABC 相关：用于动态简谱/五线谱
+const abcCode = computed(() => score.value?.abc_source || '')
+const { visualObj, syntaxError, renderAbc } = useAbcRenderer(abcCode, { immediate: true })
+const abcActiveNoteIds = ref([])
+
+// 简谱点击跳播（目前先占位，未来可联动 abc 播放器）
+const onJianpuSeek = (payload) => {
+  console.log('[Workbench] Jianpu seek payload:', payload)
 }
 
 const getScoreImageUrl = (path) => `/${path}`
@@ -412,8 +457,21 @@ const togglePerfDebug = () => {
   }
 }
 
+// 当曲谱加载完成后，初始化波形
+watch(
+  score,
+  (val) => {
+    if (val && val.audio_path) {
+      initWaveSurfer(val.audio_path)
+      // 重新渲染 ABC 以便 visualObj 更新
+      renderAbc()
+    }
+  },
+  { immediate: false }
+)
+
 onMounted(() => {
-  fetchScore()
+  fetchScore(scoreId)
   resizeCanvases()
   window.addEventListener('resize', () => {
     isRackCollapsed.value = window.innerWidth < 768
