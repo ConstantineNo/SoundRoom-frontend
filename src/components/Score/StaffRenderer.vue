@@ -109,11 +109,15 @@ const updateHighlight = () => {
 
 
   props.activeNoteIds.forEach(id => {
-
-    const el = paperRef.value.querySelector(`[data-note-id="${id}"]`)
+    // 尝试 data-note-id (自定义渲染)
+    let el = paperRef.value.querySelector(`[data-note-id="${id}"]`)
+    
+    // 如果没找到，尝试类名 (abcjs 标准渲染 uses abcjs-nXX)
+    if (!el && typeof id === 'string' && id.startsWith('abcjs-n')) {
+       el = paperRef.value.querySelector(`.${id}`)
+    }
 
     if (el) el.classList.add('highlight-note')
-
   })
 
 }

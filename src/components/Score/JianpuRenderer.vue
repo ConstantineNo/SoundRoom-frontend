@@ -4,6 +4,7 @@
     :active-note-ids="activeNoteIds"
     :debug-mode="debugMode"
     :target-key="targetKey"
+    :playback-time="playbackTime"
     @measure-issues="onMeasureIssues"
     @seek-to-note="onSeekToNote"
   />
@@ -17,7 +18,8 @@ const props = defineProps({
   tune: { type: Object, default: null },
   activeNoteIds: { type: Array, default: () => [] },
   debugMode: { type: Boolean, default: false },
-  targetKey: { type: String, default: '' }
+  targetKey: { type: String, default: '' },
+  playbackTime: { type: Number, default: 0 }
 })
 
 const emit = defineEmits(['measure-issues', 'seek-to-note'])

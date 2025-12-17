@@ -93,8 +93,8 @@
                
               <!-- 普通音符 -->
               <template v-if="!note.isGrace">
-                <!-- Highlight -->
-                <rect v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId))"
+                <!-- Highlight: Check IDs OR Time -->
+                <rect v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)) || (playbackTime > 0 && note.absoluteTime <= playbackTime && (note.absoluteTime + note.duration) > playbackTime)"
                   class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || config.NOTE_WIDTH) + 10" :height="55" />
                 
                 <!-- Accidental -->
@@ -263,7 +263,8 @@ const props = defineProps({
   tune: { type: Object, default: null },
   activeNoteIds: { type: Array, default: () => [] },
   debugMode: { type: Boolean, default: false },
-  targetKey: { type: String, default: '' }
+  targetKey: { type: String, default: '' },
+  playbackTime: { type: Number, default: 0 }
 })
 
 const emit = defineEmits(['measure-issues', 'seek-to-note'])

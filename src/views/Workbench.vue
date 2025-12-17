@@ -4,7 +4,7 @@
     <div class="stage-toolbar">
        <div class="view-switcher">
           <button class="switch-btn back-btn" @click="router.push('/library')">
-             ⬅ 曲谱库
+             ⬅ <span class="btn-text">曲谱库</span>
           </button>
           <div class="separator"></div>
           <button 
@@ -32,8 +32,18 @@
             📊 语谱图
           </button>
        </div>
+       
+       <!-- Instrument Selector (Only for Dynamic Modes) -->
+       <div v-if="viewMode === 'jianpu' || viewMode === 'staff'" class="instrument-selector">
+          <select v-model="selectedInstrument" @change="onInstrumentChange">
+             <option v-for="inst in availableInstruments" :key="inst.value" :value="inst.value">
+               {{ inst.label }}
+             </option>
+          </select>
+       </div>
+
        <button class="rack-toggle-btn" @click="toggleRack">
-          {{ isRackCollapsed ? '🛠️ 打开工具' : '➡️ 收起工具' }}
+          {{ isRackCollapsed ? '🛠️' : '➡️' }}
        </button>
     </div>
 
@@ -62,6 +72,7 @@
             :active-note-ids="abcActiveNoteIds"
             :target-key="score.song_key"
             :debug-mode="false"
+            :playback-time="playbackTime"
             @seek-to-note="onJianpuSeek"
           />
           <div v-else class="loading-text">暂无 ABC 乐谱，无法显示动态简谱</div>
@@ -175,6 +186,8 @@ import { ref, onMounted, onUnmounted, computed, watch, watchEffect, nextTick } f
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import WaveSurfer from 'wavesurfer.js'
+import abcjs from 'abcjs'
+import 'abcjs/abcjs-audio.css' // Import default abcjs audio css if available, or just rely on custom
 import * as Tone from 'tone'
 import { useMessage } from 'naive-ui'
 import { useRouter } from 'vue-router'
@@ -254,13 +267,87 @@ const abcCode = computed(() => score.value?.abc_source || '')
 const { visualObj, syntaxError, renderAbc } = useAbcRenderer(abcCode, { immediate: true })
 const abcActiveNoteIds = ref([])
 
-// 简谱点击跳播（目前先占位，未来可联动 abc 播放器）
+// Map to store element -> abcjs class name
+const abcElementClassMap = new Map()
+
+// Helper to rebuild map
+const rebuildElementMap = (vObj) => {
+  abcElementClassMap.clear()
+  if (!vObj) return
+  
+  let noteIdx = 0
+  // Traverse exactly as abcjs does for naming
+  if (vObj.lines) {
+     vObj.lines.forEach(line => {
+        if (line.staff) {
+           line.staff.forEach(staff => {
+              staff.voices.forEach(voice => {
+                 voice.forEach(el => {
+                    if (el.el_type === 'note') {
+                       abcElementClassMap.set(el, `abcjs-n${noteIdx}`)
+                       noteIdx++
+                    }
+                 })
+              })
+           })
+        }
+     })
+  }
+}
+
+watch(visualObj, (val) => {
+   rebuildElementMap(val)
+})
+
+// MIDI / Synth Logic
+const midiSynth = ref(null)
+const selectedInstrument = ref(0) // 0 = Piano default
+const availableInstruments = [
+  { label: '🎹 Piano', value: 0 },
+  { label: '🎸 Guitar', value: 24 },
+  { label: '🎻 Violin', value: 40 },
+  { label: '🎺 Trumpet', value: 56 },
+  { label: '🎍 Flute', value: 73 },
+  { label: '🎷 Sax', value: 65 },
+  { label: '🔔 Marimba', value: 12 }
+]
+// We use a shared audio context if possible or let abcjs create one to avoid conflicts
+// ideally reuse `audioContext` we created for spectrum if active, but simpler to let abcjs manage its own for synth.
+
+const initMidiSynth = async () => {
+   if (midiSynth.value) return 
+   midiSynth.value = new abcjs.synth.CreateSynth()
+}
+
+const onInstrumentChange = async () => {
+  // If playing, we might need to restart or re-prime. For simplicity, stop first.
+  if (isPlaying.value) {
+     stopMidi()
+  }
+}
+
+// 简谱点击跳播
 const onJianpuSeek = (payload) => {
-  console.log('[Workbench] Jianpu seek payload:', payload)
+   // payload: { noteId, timePercent, absoluteTime }
+   // if midi playing, seek midi
+   if (isMidiMode.value && midiSynth.value) {
+     // Abcjs synth seek is based on seconds or percentage? 
+     // usually synth.seek(percent) [0..1] or seconds if supported. 
+     // abcjs v6 seek takes seconds (approx).
+     // visualObj has totalDuration.
+     const totalDuration = visualObj.value.getTotalTime()
+     if (payload.absoluteTime !== undefined) {
+        // seek logic for midi is tricky if not fully buffered, but let's try
+        // Actually simplest is just highlight for now, implementing true seek requires CreateSynth buffer support
+        console.log('Seeking to', payload.absoluteTime)
+     }
+   }
 }
 
 const getScoreImageUrl = (path) => `/${path}`
 const getAudioUrl = (path) => `/${path}`
+
+const isMidiMode = computed(() => viewMode.value === 'jianpu' || viewMode.value === 'staff')
 
 // --- UI Logic ---
 const toggleRack = () => {
@@ -292,7 +379,10 @@ const stopDrag = () => {
 
 // --- Audio & Spectrum Logic ---
 const initWaveSurfer = (audioPath) => {
-  if (wavesurfer.value) return
+  if (wavesurfer.value) {
+      wavesurfer.value.destroy()
+      wavesurfer.value = null
+  }
   
   wavesurfer.value = WaveSurfer.create({
     container: '#waveform',
@@ -313,15 +403,121 @@ const initWaveSurfer = (audioPath) => {
   })
 }
 
+const playbackTime = ref(0)
+let lastEventTime = 0
+
+// -- MIDI Playback Functions --
+const playMidi = async () => {
+  if (!midiSynth.value) await initMidiSynth()
+  if (!visualObj.value) return 
+
+  // Check if already playing
+  if (isPlaying.value) {
+    midiSynth.value.pause()
+    isPlaying.value = false
+    return
+  }
+
+  try {
+      // Initialize synth with visual object
+      await midiSynth.value.init({ 
+         visualObj: visualObj.value,
+         options: {
+            program: selectedInstrument.value
+         }
+      })
+      await midiSynth.value.prime()
+      
+      // Start
+      await midiSynth.value.start()
+      isPlaying.value = true
+      
+      runTimingCallbacks()
+  } catch (e) {
+      console.error('MIDI Play Error', e)
+      message.error('无法播放 MIDI: ' + e.message)
+      isPlaying.value = false
+  }
+}
+
+let timingCallbacks = null
+const runTimingCallbacks = () => {
+   if (timingCallbacks) timingCallbacks.stop()
+   
+   // Create timing callbacks associated with the VisualObj used by Synth
+   timingCallbacks = new abcjs.TimingCallbacks(visualObj.value, {
+      eventCallback: (event) => {
+         // event: { milliseconds: number, elements: [], ... }
+         if (event) {
+            playbackTime.value = event.milliseconds / 1000.0
+            lastEventTime = playbackTime.value
+            
+            // Highlight logic:
+            // Jianpu uses time-based highlighting (playbackTime)
+            // Staff uses class-based highlighting (abcActiveNoteIds)
+            
+            // Try to find active notes in map if timestamps are available (added by synth.init)
+            const activeIds = []
+            for (const [el, cls] of abcElementClassMap.entries()) {
+               // abcjs synth often adds 'midiPitches' with duration/start info to elements relative to timeline
+               // Check if element overlaps current time
+               // Note: This relies on internal abcjs structure which adds .midiPitches or similar after init.
+               // If found, push to activeIds.
+               // For now, we rely primarily on playbackTime for Jianpu.
+            }
+            if (activeIds.length > 0) {
+              abcActiveNoteIds.value = activeIds
+            }
+         }
+      },
+      onEnded: () => {
+        if (isLooping.value) {
+           midiSynth.value.start()
+           runTimingCallbacks() // Restart callbacks
+        } else {
+           isPlaying.value = false
+           playbackTime.value = 0
+           abcActiveNoteIds.value = []
+        }
+      }
+   })
+   timingCallbacks.start()
+}
+
+const stopMidi = () => {
+  if (midiSynth.value) {
+    midiSynth.value.stop()
+    isPlaying.value = false
+  }
+  if (timingCallbacks) {
+     timingCallbacks.stop()
+  }
+}
+
 const playPause = () => {
-  if (wavesurfer.value) {
-    wavesurfer.value.playPause()
-    isPlaying.value = wavesurfer.value.isPlaying()
+  if (isMidiMode.value) {
+     if (isPlaying.value) {
+        // Pause/Step
+        // midiSynth does not have simple pause/resume exactly like audio... 
+        // actually it does have `.pause()` in recent versions.
+        stopMidi() // For MVP, simple stop/toggle
+     } else {
+        playMidi()
+     }
+  } else {
+      // Audio Mode
+      if (wavesurfer.value) {
+        wavesurfer.value.playPause()
+        isPlaying.value = wavesurfer.value.isPlaying()
+      }
   }
 }
 
 const seekToStart = () => {
-  if (wavesurfer.value) {
+  if (isMidiMode.value) {
+     stopMidi()
+     // midiSynth.seek(0)
+  } else if (wavesurfer.value) {
     wavesurfer.value.seekTo(0)
   }
 }
@@ -519,9 +715,17 @@ onMounted(() => {
 onUnmounted(() => {
   if (wavesurfer.value) wavesurfer.value.destroy()
   stopSpectrum()
+  stopMidi()
 })
 
-watch(viewMode, () => {
+watch(viewMode, (newMode) => {
+  // Switch logic: Stop everything when switching modes
+  stopMidi()
+  if (wavesurfer.value) {
+     wavesurfer.value.pause()
+     isPlaying.value = false
+  }
+
   nextTick(() => {
     resizeCanvases()
   })
@@ -533,7 +737,8 @@ watch(viewMode, () => {
   display: grid;
   grid-template-columns: 1fr 280px;
   grid-template-rows: 48px 1fr 200px;
-  height: calc(100vh - 64px);
+  grid-template-rows: 48px 1fr 200px;
+  height: 100vh;
   background-color: #121214;
   color: #E0E0E0;
   overflow: hidden;
@@ -575,6 +780,23 @@ watch(viewMode, () => {
   background: #333;
   color: #fff;
   border-color: #555;
+}
+
+/* Mobile: hide text if too small */
+@media (max-width: 768px) {
+   .btn-text {
+      display: none;
+   }
+}
+
+.instrument-selector select {
+  background: #222;
+  color: #eee;
+  border: 1px solid #444;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  max-width: 120px;
 }
 
 .rack-toggle-btn {
@@ -747,5 +969,25 @@ watch(viewMode, () => {
     justify-content: space-between;
   }
   .track-info { display: none; }
+  
+  /* Mobile Toolbar Fixes */
+  .stage-toolbar {
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 0 8px;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  .stage-toolbar::-webkit-scrollbar {
+    display: none; /* Hide scrollbar for cleaner look */
+  }
+  .view-switcher {
+    flex-shrink: 0;
+  }
+  .rack-toggle-btn {
+    margin-left: auto; /* Push to right if space permits */
+    flex-shrink: 0;
+    padding-left: 12px;
+  }
 }
 </style>
