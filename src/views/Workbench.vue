@@ -3,6 +3,10 @@
     <!-- Header / Toolbar -->
     <div class="stage-toolbar">
        <div class="view-switcher">
+          <button class="switch-btn back-btn" @click="router.push('/library')">
+             ⬅ 曲谱库
+          </button>
+          <div class="separator"></div>
           <button 
             class="switch-btn" 
             :class="{ active: viewMode === 'image' }"
@@ -131,17 +135,33 @@
          </div>
          
          <div class="control-group center">
+            <!-- Rewind Button -->
+            <button class="console-btn small-btn" @click="seekToStart" title="回到起点">
+               ⏮
+            </button>
+
             <button class="console-btn play-btn" @click="playPause">
               <span class="icon">{{ isPlaying ? '⏸' : '▶' }}</span>
             </button>
-            
-            <button class="console-btn record-btn" :class="{ 'is-recording': isRecording }" @click="toggleRecording">
-               <div class="record-inner"></div>
+
+            <!-- Loop Button -->
+             <button 
+               class="console-btn small-btn" 
+               :class="{ active: isLooping }" 
+               @click="toggleLoop" 
+               title="循环播放">
+               🔁
             </button>
             
-            <button class="console-btn save-btn" @click="saveRecording" :disabled="!recordedBlob" title="Save Recording">
-               <span>💾</span>
-            </button>
+            <template v-if="viewMode !== 'jianpu' && viewMode !== 'staff'">
+              <button class="console-btn record-btn" :class="{ 'is-recording': isRecording }" @click="toggleRecording">
+                 <div class="record-inner"></div>
+              </button>
+              
+              <button class="console-btn save-btn" @click="saveRecording" :disabled="!recordedBlob" title="Save Recording">
+                 <span>💾</span>
+              </button>
+            </template>
          </div>
          
          <div class="control-group right"></div>
@@ -157,6 +177,7 @@ import axios from 'axios'
 import WaveSurfer from 'wavesurfer.js'
 import * as Tone from 'tone'
 import { useMessage } from 'naive-ui'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import MetronomePanel from '../components/MetronomePanel.vue'
 import SpectrogramVisualizer from '../components/SpectrogramVisualizer.vue'
@@ -167,12 +188,14 @@ import StaffRenderer from '../components/Score/StaffRenderer.vue'
 import { useScoreData } from '../composables/useScoreData'
 import { useAbcRenderer } from '../composables/useAbcRenderer'
 
+const router = useRouter()
 const route = useRoute()
 const scoreId = route.params.scoreId
 // 使用通用曲谱加载逻辑
 const { score, fetchScore } = useScoreData()
 const wavesurfer = ref(null)
 const isPlaying = ref(false)
+const isLooping = ref(false)
 const isRecording = ref(false)
 const recordedBlob = ref(null)
 const recordedAudioUrl = ref(null)
@@ -282,7 +305,11 @@ const initWaveSurfer = (audioPath) => {
   wavesurfer.value.load(getAudioUrl(audioPath))
   
   wavesurfer.value.on('finish', () => {
-    isPlaying.value = false
+    if (isLooping.value) {
+      wavesurfer.value.play()
+    } else {
+      isPlaying.value = false
+    }
   })
 }
 
@@ -291,6 +318,16 @@ const playPause = () => {
     wavesurfer.value.playPause()
     isPlaying.value = wavesurfer.value.isPlaying()
   }
+}
+
+const seekToStart = () => {
+  if (wavesurfer.value) {
+    wavesurfer.value.seekTo(0)
+  }
+}
+
+const toggleLoop = () => {
+  isLooping.value = !isLooping.value
 }
 
 const playNote = async (note) => {
@@ -693,6 +730,9 @@ watch(viewMode, () => {
 .record-btn.is-recording .record-inner { border-radius: 4px; transform: scale(0.5); box-shadow: 0 0 15px #FF3333; animation: breathe 2s infinite; }
 .save-btn { width: 40px; height: 40px; border-radius: 50%; background: #333; font-size: 20px; }
 .save-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.small-btn { width: 36px; height: 36px; border-radius: 50%; background: #333; color: #ccc; font-size: 16px; border: 1px solid #444; }
+.small-btn.active { color: #50C878; border-color: #50C878; }
+.separator { width: 1px; height: 24px; background-color: #333; margin: 0 4px; }
 .track-info { color: #fff; text-align: left; }
 .track-title { font-weight: bold; font-size: 1rem; }
 .track-meta { font-size: 0.8rem; color: #888; }

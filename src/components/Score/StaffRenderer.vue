@@ -217,29 +217,45 @@ onUnmounted(() => {
 
 /* 与 Editor 中的五线谱高亮样式保持一致 */
 
-::deep(.highlight-note) {
-
+/* 与 Editor 中的五线谱高亮样式保持一致 */
+:deep(.highlight-note) {
   fill: #d03050 !important;
-
   stroke: #d03050 !important;
-
+}
+:deep(.highlight-note path) {
+  fill: #d03050 !important;
+  stroke: #d03050 !important;
+}
+:deep(g.highlight-note path) {
+  fill: #d03050 !important;
+  stroke: #d03050 !important;
 }
 
-::deep(.highlight-note path) {
-
-  fill: #d03050 !important;
-
-  stroke: #d03050 !important;
-
+/* 强制覆盖全局样式，确保五线谱内容为黑色 */
+:deep(svg) {
+  color: black;
+}
+:deep(svg text) {
+  fill: black;
+}
+:deep(svg path) {
+  fill: black; 
+  stroke: none; /* 通常abcjs的path是填充的，线条也是通过path绘制的 */
+}
+/* 具体的abcjs类可能需要更具体的处理，但通常 fill: black 足够 */
+:deep(.abcjs-staff) {
+  fill: black;
+}
+:deep(.abcjs-note) {
+  fill: black;
+}
+:deep(.abcjs-beam-elem) {
+  fill: black;
+}
+:deep(.abcjs-slur) {
+  fill: black;
 }
 
-::deep(g.highlight-note path) {
-
-  fill: #d03050 !important;
-
-  stroke: #d03050 !important;
-
-}
 
 </style>
 

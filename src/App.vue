@@ -4,7 +4,7 @@
       <n-dialog-provider>
         <n-notification-provider>
           <n-layout style="height: 100vh; display: flex; flex-direction: column;">
-            <n-layout-header bordered style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <n-layout-header v-if="!isWorkbenchPage" bordered style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
               <div style="font-size: 1.2rem; font-weight: bold;">乐器学习一步到位</div>
               <n-space align="center">
                 <router-link to="/library"><n-button text>曲谱库</n-button></router-link>
@@ -22,7 +22,7 @@
             <n-layout-content :content-style="{ padding: isFullWidthPage ? '0' : '24px', flex: 1 }">
               <router-view />
             </n-layout-content>
-            <n-layout-footer bordered style="padding: 10px; text-align: center;">
+            <n-layout-footer v-if="!isWorkbenchPage" bordered style="padding: 10px; text-align: center;">
               <div>&copy; 2025 乐器学习一步到位</div>
               <div style="margin-top: 5px;">
                 <a href="https://beian.miit.gov.cn/" target="_blank" style="text-decoration: none; color: inherit;">
@@ -66,6 +66,10 @@ const route = useRoute()
 
 const isFullWidthPage = computed(() => {
   return route.path.startsWith('/editor') || route.path.startsWith('/practice')
+})
+
+const isWorkbenchPage = computed(() => {
+  return route.path.startsWith('/practice')
 })
 
 const handleLogout = () => {
