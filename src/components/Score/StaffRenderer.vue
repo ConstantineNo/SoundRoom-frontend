@@ -54,19 +54,7 @@ const renderStaff = () => {
 
   const code = props.abcCode || ''
 
-  console.log('[StaffRenderer] renderStaff called:', { 
-    hasPaperRef: !!paperRef.value, 
-    codeLength: code.length,
-    codePreview: code.substring(0, 50) 
-  })
-
-  if (!paperRef.value || !code.trim()) {
-    console.warn('[StaffRenderer] 跳过渲染:', { 
-      hasPaperRef: !!paperRef.value, 
-      hasCode: !!code.trim() 
-    })
-    return
-  }
+  if (!paperRef.value || !code.trim()) return
 
 
 
@@ -78,7 +66,6 @@ const renderStaff = () => {
 
   try {
 
-    console.log('[StaffRenderer] 开始渲染五线谱到 DOM')
     visualObjs = abcjs.renderAbc(paperRef.value, code, {
 
       responsive: 'resize',
@@ -88,7 +75,6 @@ const renderStaff = () => {
       staffwidth: 800
 
     })
-    console.log('[StaffRenderer] 渲染完成:', { visualObjsCount: visualObjs?.length })
 
   } catch (e) {
 
@@ -138,12 +124,8 @@ watch(
 
   () => props.abcCode,
 
-  (newCode) => {
+  () => {
 
-    console.log('[StaffRenderer] abcCode changed:', { 
-      length: newCode?.length || 0,
-      preview: newCode?.substring(0, 50) || '' 
-    })
     // 使用 nextTick 确保 DOM 已准备好
     nextTick(() => {
       renderStaff()
@@ -173,7 +155,6 @@ watch(
 
 onMounted(() => {
 
-  console.log('[StaffRenderer] onMounted, paperRef:', paperRef.value, 'abcCode:', props.abcCode?.substring(0, 50))
   // 确保 DOM 准备好后再渲染
   nextTick(() => {
 

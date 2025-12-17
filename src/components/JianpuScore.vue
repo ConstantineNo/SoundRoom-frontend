@@ -26,7 +26,7 @@
 
           <!-- Outgoing Ties (行末连出) -->
           <template v-for="(outTie, otIdx) in row.outgoingTies" :key="'ot'+otIdx">
-            <path class="tie-line" :d="getOutgoingTiePath(outTie, row.measures, rowWidth)" />
+            <path class="tie-line" :d="getOutgoingTiePath(outTie, row.measures, svgWidth)" />
           </template>
           
           <!-- Incoming Ties (行首连入) -->
@@ -36,7 +36,7 @@
 
           <!-- Outgoing Slurs (行末圆滑线) -->
           <template v-for="(outSlur, osIdx) in row.outgoingSlurs" :key="'os'+osIdx">
-            <path class="slur-line" :d="getOutgoingSlurPath(outSlur, row.measures, rowWidth)" />
+            <path class="slur-line" :d="getOutgoingSlurPath(outSlur, row.measures, svgWidth)" />
           </template>
           
           <!-- Incoming Slurs (行首圆滑线) -->
