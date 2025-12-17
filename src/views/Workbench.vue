@@ -227,7 +227,16 @@ const scoreStyle = computed(() => ({
 }))
 
 // ABC 相关：用于动态简谱/五线谱
-const abcCode = computed(() => score.value?.abc_source || '')
+const abcCode = computed(() => {
+  const code = score.value?.abc_source || ''
+  console.log('[Workbench] abcCode computed:', { 
+    hasScore: !!score.value, 
+    hasAbcSource: !!score.value?.abc_source,
+    codeLength: code.length,
+    codePreview: code.substring(0, 50)
+  })
+  return code
+})
 const { visualObj, syntaxError, renderAbc } = useAbcRenderer(abcCode, { immediate: true })
 const abcActiveNoteIds = ref([])
 
@@ -593,6 +602,25 @@ watch(viewMode, () => {
 .analysis-mode {
   position: relative;
   background-color: #000;
+}
+
+.stage-inner {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.staff-mode {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.jianpu-mode {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px;
 }
 
 /* Side Rack */
