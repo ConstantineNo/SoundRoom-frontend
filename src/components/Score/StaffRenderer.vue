@@ -190,6 +190,16 @@ onUnmounted(() => {
 
   height: 100%;
 
+  background: #ffffff; /* 保证在深色背景下五线谱可见 */
+
+  display: flex;
+
+  align-items: flex-start;
+
+  justify-content: center;
+
+  overflow: auto;
+
 }
 
 
