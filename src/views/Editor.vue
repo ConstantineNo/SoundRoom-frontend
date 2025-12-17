@@ -77,7 +77,7 @@
           v-if="viewMode === 'jianpu' && visualObj" 
           class="score-wrapper" 
         >
-          <JianpuScore 
+          <JianpuRenderer 
             :tune="visualObj" 
             :active-note-ids="activeNoteIds"
             :debug-mode="true"
@@ -98,9 +98,10 @@ import axios from 'axios'
 import abcjs from 'abcjs'
 import 'abcjs/abcjs-audio.css'
 import { useMessage, NButton, NIcon, NSelect } from 'naive-ui'
-import JianpuScore from '../components/JianpuScore.vue'
+import JianpuRenderer from '../components/Score/JianpuRenderer.vue'
 import { ArrowBack, Copy, Save } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
+import { useScoreData } from '../composables/useScoreData'
 
 const BREAKPOINT_MOBILE = 600
 const BREAKPOINT_TABLET = 1024
@@ -117,7 +118,8 @@ const lineNumbersRef = ref(null)
 const rightPaneRef = ref(null)
 
 const scoreId = route.params.scoreId
-const score = ref(null)
+// 使用通用的曲谱数据获取 composable
+const { score, loading: scoreLoading, error: scoreError, fetchScore } = useScoreData()
 const abcCode = ref('')
 
 const instrumentOptions = [
@@ -543,26 +545,24 @@ watch(abcCode, () => {
   renderAbc()
 })
 
-const fetchScore = async () => {
-  try {
-    const response = await axios.get(`/api/scores/${scoreId}`)
-    score.value = response.data
-    // Load existing ABC or default
-    if (score.value.abc_source) {
-      abcCode.value = score.value.abc_source
+// 根据后端返回的 score 初始化 abcCode
+watch(
+  score,
+  (val) => {
+    if (!val) return
+    if (val.abc_source) {
+      abcCode.value = val.abc_source
     } else {
       let initCode = DEFAULT_TEMPLATE
-      if (score.value.title) initCode = initCode.replace("T:New Song", `T:${score.value.title}`)
-      if (score.value.song_key) initCode = initCode.replace("K:C", `K:${score.value.song_key}`)
+      if (val.title) initCode = initCode.replace('T:New Song', `T:${val.title}`)
+      if (val.song_key) initCode = initCode.replace('K:C', `K:${val.song_key}`)
       abcCode.value = initCode
     }
-    // Initial Render
+    // 首次加载完成后渲染
     renderAbc()
-  } catch (error) {
-    message.error('加载失败')
-    console.error(error)
-  }
-}
+  },
+  { immediate: false }
+)
 
 const saveScore = async () => {
   saving.value = true
@@ -648,7 +648,8 @@ Return ONLY the ABC code block. Do not provide explanations.`
 }
 
 onMounted(() => {
-  fetchScore()
+  // 使用通用数据加载逻辑
+  fetchScore(scoreId)
   initResizeObserver()
 })
 
