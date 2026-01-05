@@ -265,7 +265,7 @@ const scoreStyle = computed(() => ({
 
 // ABC 相关：用于动态简谱/五线谱
 const abcCode = computed(() => score.value?.abc_source || '')
-const { visualObj, syntaxError, renderAbc } = useAbcRenderer(abcCode, { immediate: true })
+const { visualObj, syntaxError, renderAbc, elemToIdMap } = useAbcRenderer(abcCode, { immediate: true })
 const abcActiveNoteIds = ref([])
 
 // Map to store element -> abcjs class name
@@ -521,8 +521,8 @@ const runTimingCallbacks = () => {
                      // Workbench 场景下，el 是 HEADLESS 生成的 SVG 节点，它身上没有 _myId 属性，
                      // 但我们在 useAbcRenderer 里已经把它放入了 elemToIdMap！
                      let foundId = el._myId
-                     if (!foundId && abcRenderer.elemToIdMap.has(el)) {
-                        foundId = abcRenderer.elemToIdMap.get(el)
+                     if (!foundId && elemToIdMap.has(el)) {
+                        foundId = elemToIdMap.get(el)
                      }
 
                      if (foundId) {
