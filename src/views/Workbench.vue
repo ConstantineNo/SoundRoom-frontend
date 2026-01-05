@@ -504,7 +504,7 @@ const runTimingCallbacks = () => {
             lastEventTime = playbackTime.value
             
             // Debug: Log Playback Event
-            // console.log(`[Workbench] Playback Event @ ${playbackTime.value.toFixed(2)}s`)
+            console.log(`[Workbench] Playback Event @ ${playbackTime.value.toFixed(2)}s`)
 
             // Highlight logic: Use IDs from event elements
             // Note: event.elements contains the abstract elements from visualObj
@@ -514,14 +514,14 @@ const runTimingCallbacks = () => {
                   const arr = Array.isArray(group) ? group : [group]
                   arr.forEach((el, eIdx) => {
                      // Debug element info
-                     // console.log(`  Elem [${gIdx}][${eIdx}]:`, el)
+                     console.log(`  Elem [${gIdx}][${eIdx}]:`, el)
                      
                      // 优先检查 _myId (由 useAbcRenderer 注入)
                      if (el._myId) {
-                        // console.log(`    -> Found ID: ${el._myId}`)
+                        console.log(`    -> Found ID: ${el._myId}`)
                         activeIds.push(el._myId)
                      } else {
-                        // console.warn(`    -> No ID found! Type: ${el.el_type}`)
+                        console.warn(`    -> No ID found! Type: ${el.el_type}`)
                      }
                   })
                })
@@ -532,6 +532,7 @@ const runTimingCallbacks = () => {
                } else {
                   // 如果没有元素（休止符？），清空
                   abcActiveNoteIds.value = []
+                  console.log('[Workbench] No active notes found in event')
                }
             }
          }
