@@ -507,40 +507,40 @@ const runTimingCallbacks = () => {
             console.log(`[Workbench] Playback Event @ ${playbackTime.value.toFixed(2)}s`)
 
             // Highlight logic: Use IDs from event elements
-            // Note: event.elements contains the abstract elements from visualObj
+            // Note: event.elements contains the abstract elements/SVG nodes from visualObj
             if (event.elements) {
                const activeIds = []
-               event.elements.forEach((group, gIdx) => {
-                  const arr = Array.isArray(group) ? group : [group]
-                  arr.forEach((el, eIdx) => {
+               
+               // Flatten changes structure: sometimes event.elements is [ [el1, el2], [el3] ] or flat.
+               // Safer to just deep flatten or iterate carefully.
+               const flatElements = event.elements.flat(2) // abcjs could nest voices
+               
+               flatElements.forEach((el, idx) => {
                      // Debug element info
-                     console.log(`  Elem [${gIdx}][${eIdx}]:`, el)
+                     // console.log(`  Elem [${idx}]:`, el)
                      
-                     // 优先检查 _myId (由 useAbcRenderer 注入到数据对象)
-                     // 或者使用 elemToIdMap (由 useAbcRenderer 建立的 DOM->ID 映射)
-                     // Workbench 场景下，el 是 HEADLESS 生成的 SVG 节点，它身上没有 _myId 属性，
-                     // 但我们在 useAbcRenderer 里已经把它放入了 elemToIdMap！
+                     // 1. 尝试直接获取 _myId (如果是数据对象)
                      let foundId = el._myId
+                     
+                     // 2. 如果没有，尝试查表 (如果是 DOM SVG 对象)
                      if (!foundId && elemToIdMap.has(el)) {
                         foundId = elemToIdMap.get(el)
                      }
 
                      if (foundId) {
-                        console.log(`    -> Found ID: ${foundId}`)
+                        // console.log(`    -> Found ID: ${foundId}`)
                         activeIds.push(foundId)
                      } else {
-                        console.warn(`    -> No ID found! Type: ${el.el_type}`)
+                        // console.warn(`    -> No ID found! Type: ${el.el_type}`)
                      }
-                  })
                })
+               
                // 去重并更新
                if (activeIds.length > 0) {
                   abcActiveNoteIds.value = [...new Set(activeIds)]
                   console.log(`[Workbench] Highlight: ${abcActiveNoteIds.value.join(',')}`)
                } else {
-                  // 如果没有元素（休止符？），清空
                   abcActiveNoteIds.value = []
-                  console.log('[Workbench] No active notes found in event')
                }
             }
          }
