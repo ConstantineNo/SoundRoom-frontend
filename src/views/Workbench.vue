@@ -1,3 +1,4 @@
+<!-- src/views/Workbench.vue -->
 <template>
   <div class="workbench-container" :class="{ 'rack-collapsed': isRackCollapsed }">
     <!-- Header / Toolbar -->
@@ -264,7 +265,7 @@ const scoreStyle = computed(() => ({
 
 // ABC 相关：用于动态简谱/五线谱
 const abcCode = computed(() => score.value?.abc_source || '')
-const { visualObj, syntaxError, renderAbc } = useAbcRenderer(abcCode, { immediate: true })
+const { visualObj, syntaxError, renderAbc, elemToIdMap } = useAbcRenderer(abcCode, { immediate: true })
 const abcActiveNoteIds = ref([])
 
 // Map to store element -> abcjs class name
@@ -303,13 +304,9 @@ watch(visualObj, (val) => {
 const midiSynth = ref(null)
 const selectedInstrument = ref(0) // 0 = Piano default
 const availableInstruments = [
-  { label: '🎹 Piano', value: 0 },
-  { label: '🎸 Guitar', value: 24 },
-  { label: '🎻 Violin', value: 40 },
-  { label: '🎺 Trumpet', value: 56 },
-  { label: '🎍 Flute', value: 73 },
-  { label: '🎷 Sax', value: 65 },
-  { label: '🔔 Marimba', value: 12 }
+  { label: '🎹 钢琴', value: 0 },
+  { label: ' 小提琴', value: 40 },
+  { label: '🎍 长笛', value: 73 }
 ]
 // We use a shared audio context if possible or let abcjs create one to avoid conflicts
 // ideally reuse `audioContext` we created for spectrum if active, but simpler to let abcjs manage its own for synth.
@@ -329,17 +326,70 @@ const onInstrumentChange = async () => {
 // 简谱点击跳播
 const onJianpuSeek = (payload) => {
    // payload: { noteId, timePercent, absoluteTime }
-   // if midi playing, seek midi
-   if (isMidiMode.value && midiSynth.value) {
-     // Abcjs synth seek is based on seconds or percentage? 
-     // usually synth.seek(percent) [0..1] or seconds if supported. 
-     // abcjs v6 seek takes seconds (approx).
-     // visualObj has totalDuration.
-     const totalDuration = visualObj.value.getTotalTime()
-     if (payload.absoluteTime !== undefined) {
-        // seek logic for midi is tricky if not fully buffered, but let's try
-        // Actually simplest is just highlight for now, implementing true seek requires CreateSynth buffer support
-        console.log('Seeking to', payload.absoluteTime)
+   if (isMidiMode.value && midiSynth.value && visualObj.value) {
+     const noteId = payload.noteId
+     if (!noteId) return
+
+     // 尝试查找该 noteId 对应的精确时间
+     // 由于 Workbench 没有 tuneStaff，无法使用 noteIdToTimingMap
+     // 我们需要直接遍历 visualObj.value (tuneJianpu) 来查找对应的元素
+     // abcjs 的 CreateSynth/TimingCallbacks 在 init 后通常会给 inputs 附加 midiPitches/startTiming (internal implementation detail)
+     // 或者我们直接搜索 visualObj 里的元素
+     
+     let foundTime = -1
+     
+     // 深度遍历 visualObj 查找匹配的 _myId
+     // 这是一个耗时操作，但在点击 Seek 时通常可以接受
+     // 优化：可以像 Editor 一样建立 Map，但这里直接遍历最简单
+     const traverse = (obj) => {
+        if (foundTime >= 0) return
+        
+        // 检查当前对象是否有 _myId 且匹配
+        if (obj._myId === noteId) {
+           // 找到目标！尝试获取时间
+           // abcjs 渲染对象通常有 currentTrackMilliseconds 或类似
+           // 但更可靠的是看 midiPitches
+           if (obj.midiPitches && obj.midiPitches[0]) {
+              foundTime = obj.midiPitches[0].start
+              return
+           } else if (obj.startTiming !== undefined) {
+               // RenderAbc generated timing (unscaled?)
+               // 这里的 startTiming 可能是 raw units，需要 scale?
+               // 通常 midiPitches 是以秒为单位的 (CreateSynth init 后)
+               // 我们优先信任 midiPitches
+           }
+        }
+        
+        // 递归遍历数组或对象属性
+        if (Array.isArray(obj)) {
+           for(let item of obj) traverse(item)
+        } else if (typeof obj === 'object' && obj !== null) {
+           // 遍历 lines / staff / voices
+           if (obj.lines) traverse(obj.lines)
+           else if (obj.staff) traverse(obj.staff)
+           else if (obj.voices) traverse(obj.voices)
+           else if (Array.isArray(obj)) traverse(obj) // Fallback for voice array
+        }
+     }
+     
+     // 从 lines 开始遍历效率较高
+     if (visualObj.value.lines) {
+        traverse(visualObj.value.lines)
+     }
+     
+     if (foundTime >= 0) {
+        console.log(`[Workbench] Seek to Note ${noteId}: ${foundTime}s`)
+        midiSynth.value.seek(foundTime)
+        // 更新 playbackTime 以便 UI 立即响应
+        playbackTime.value = foundTime
+        // 重新启动 highlight 循环如果需要 (seek 通常会自动触发 timing callbacks)
+     } else {
+        console.warn('[Workbench] Seek failed: could not find timing for note', noteId)
+        // 降级尝试：使用 absoluteTime (可能不准)
+        if (payload.absoluteTime !== undefined) {
+           // midiSynth.seek(payload.absoluteTime) 
+           // 暂时不启用降级，因为 absoluteTime 往往与 abcjs 内部时间不一致
+        }
      }
    }
 }
@@ -423,7 +473,8 @@ const playMidi = async () => {
       await midiSynth.value.init({ 
          visualObj: visualObj.value,
          options: {
-            program: selectedInstrument.value
+            program: selectedInstrument.value,
+            soundFontUrl: "/soundfonts/FluidR3_GM/"
          }
       })
       await midiSynth.value.prime()
@@ -452,21 +503,45 @@ const runTimingCallbacks = () => {
             playbackTime.value = event.milliseconds / 1000.0
             lastEventTime = playbackTime.value
             
-            // Highlight logic:
-            // Jianpu uses time-based highlighting (playbackTime)
-            // Staff uses class-based highlighting (abcActiveNoteIds)
-            
-            // Try to find active notes in map if timestamps are available (added by synth.init)
-            const activeIds = []
-            for (const [el, cls] of abcElementClassMap.entries()) {
-               // abcjs synth often adds 'midiPitches' with duration/start info to elements relative to timeline
-               // Check if element overlaps current time
-               // Note: This relies on internal abcjs structure which adds .midiPitches or similar after init.
-               // If found, push to activeIds.
-               // For now, we rely primarily on playbackTime for Jianpu.
-            }
-            if (activeIds.length > 0) {
-              abcActiveNoteIds.value = activeIds
+            // Debug: Log Playback Event
+            console.log(`[Workbench] Playback Event @ ${playbackTime.value.toFixed(2)}s`)
+
+            // Highlight logic: Use IDs from event elements
+            // Note: event.elements contains the abstract elements/SVG nodes from visualObj
+            if (event.elements) {
+               const activeIds = []
+               
+               // Flatten changes structure: sometimes event.elements is [ [el1, el2], [el3] ] or flat.
+               // Safer to just deep flatten or iterate carefully.
+               const flatElements = event.elements.flat(2) // abcjs could nest voices
+               
+               flatElements.forEach((el, idx) => {
+                     // Debug element info
+                     // console.log(`  Elem [${idx}]:`, el)
+                     
+                     // 1. 尝试直接获取 _myId (如果是数据对象)
+                     let foundId = el._myId
+                     
+                     // 2. 如果没有，尝试查表 (如果是 DOM SVG 对象)
+                     if (!foundId && elemToIdMap.has(el)) {
+                        foundId = elemToIdMap.get(el)
+                     }
+
+                     if (foundId) {
+                        // console.log(`    -> Found ID: ${foundId}`)
+                        activeIds.push(foundId)
+                     } else {
+                        // console.warn(`    -> No ID found! Type: ${el.el_type}`)
+                     }
+               })
+               
+               // 去重并更新
+               if (activeIds.length > 0) {
+                  abcActiveNoteIds.value = [...new Set(activeIds)]
+                  console.log(`[Workbench] Highlight: ${abcActiveNoteIds.value.join(',')}`)
+               } else {
+                  abcActiveNoteIds.value = []
+               }
             }
          }
       },

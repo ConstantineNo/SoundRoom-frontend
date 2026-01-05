@@ -1,3 +1,4 @@
+<!-- src/components/Score/StaffRenderer.vue -->
 <template>
 
   <div class="staff-renderer">

@@ -1,3 +1,4 @@
+// src/composables/useAutoScroll.js
 import { watch } from 'vue'
 
 /**

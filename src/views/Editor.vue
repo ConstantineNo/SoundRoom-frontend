@@ -1,3 +1,4 @@
+<!-- src/views/Editor.vue -->
 <template>
   <div class="editor-container" :class="`layout-${layoutMode}`">
     <div class="header">
