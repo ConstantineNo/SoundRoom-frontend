@@ -304,13 +304,9 @@ watch(visualObj, (val) => {
 const midiSynth = ref(null)
 const selectedInstrument = ref(0) // 0 = Piano default
 const availableInstruments = [
-  { label: '🎹 Piano', value: 0 },
-  { label: '🎸 Guitar', value: 24 },
-  { label: '🎻 Violin', value: 40 },
-  { label: '🎺 Trumpet', value: 56 },
-  { label: '🎍 Flute', value: 73 },
-  { label: '🎷 Sax', value: 65 },
-  { label: '🔔 Marimba', value: 12 }
+  { label: '🎹 钢琴', value: 0 },
+  { label: ' 小提琴', value: 40 },
+  { label: '🎍 长笛', value: 73 }
 ]
 // We use a shared audio context if possible or let abcjs create one to avoid conflicts
 // ideally reuse `audioContext` we created for spectrum if active, but simpler to let abcjs manage its own for synth.
@@ -424,7 +420,8 @@ const playMidi = async () => {
       await midiSynth.value.init({ 
          visualObj: visualObj.value,
          options: {
-            program: selectedInstrument.value
+            program: selectedInstrument.value,
+            soundFontUrl: "/soundfonts/FluidR3_GM/"
          }
       })
       await midiSynth.value.prime()
