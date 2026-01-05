@@ -121,6 +121,8 @@ export function useAbcRenderer(abcStringRef, options = {}) {
             }
           }
         }
+        // 最后赋值给 visualObj，确保携带了注入的 _myId
+        visualObj.value = tuneJianpu[0]
       }
     } catch (err) {
       console.error('[useAbcRenderer] 渲染异常:', err)
