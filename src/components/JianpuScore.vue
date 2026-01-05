@@ -1,3 +1,4 @@
+<!-- src/components/JianpuScore.vue -->
 <template>
   <div class="jianpu-score" v-if="tune" ref="scoreContainerRef">
     <!-- Header -->

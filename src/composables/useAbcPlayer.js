@@ -1,3 +1,4 @@
+//src/composables/useAbcPlayer.js
 import { ref, onUnmounted } from 'vue'
 import abcjs from 'abcjs'
 
@@ -12,7 +13,7 @@ import abcjs from 'abcjs'
  * const { initAudio, play, pause, seek, stop, activeNoteIds } = useAbcPlayer(visualObj)
  * initAudio('#audio')
  */
-export function useAbcPlayer(visualObjRef) {
+export function useAbcPlayer(visualObjRef, elemToIdMap) {
   const activeNoteIds = ref([])
   let synthControl = null
 
@@ -30,8 +31,15 @@ export function useAbcPlayer(visualObjRef) {
       ev.elements.forEach((group) => {
         const arr = Array.isArray(group) ? group : [group]
         arr.forEach((el) => {
-          if (el && el.abselem && el.abselem.elemset) {
-            // abcjs 在 abselem 中会有 tune 对象引用，可以从 tune.abcelem 中找到 id
+          // 优先使用 Map 映射策略
+          if (elemToIdMap && el.abselem && el.abselem.elemset) {
+            el.abselem.elemset.forEach(svgEl => {
+              const id = elemToIdMap.get(svgEl)
+              if (id) ids.push(id)
+            })
+          }
+          // 降级：尝试读取 DOM 属性 (兼容旧逻辑)
+          else if (el && el.abselem && el.abselem.elemset) {
             const abselem = el.abselem
             if (abselem.elemset && abselem.elemset[0]) {
               const node = abselem.elemset[0]
@@ -43,7 +51,7 @@ export function useAbcPlayer(visualObjRef) {
           }
         })
       })
-      activeNoteIds.value = ids
+      activeNoteIds.value = [...new Set(ids)]
     },
     onFinished() {
       activeNoteIds.value = []

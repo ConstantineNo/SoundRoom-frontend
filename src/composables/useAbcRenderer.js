@@ -1,3 +1,4 @@
+// src/composables/useAbcRenderer.js
 import { shallowRef, ref, watch, onUnmounted } from 'vue'
 import abcjs from 'abcjs'
 
@@ -15,6 +16,8 @@ import abcjs from 'abcjs'
 export function useAbcRenderer(abcStringRef, options = {}) {
   const visualObj = shallowRef(null)
   const syntaxError = ref('')
+  const elemToIdMap = new Map()
+  const noteIdToTimingMap = new Map()
 
   // 可选：渲染目标容器
   // - selector: 传入字符串选择器（如 '#paper'）
@@ -26,15 +29,22 @@ export function useAbcRenderer(abcStringRef, options = {}) {
     syntaxError.value = ''
     visualObj.value = null
 
+    // Clear maps
+    elemToIdMap.clear()
+    noteIdToTimingMap.clear()
+
     if (!abc || !abc.trim()) {
       return
     }
 
     try {
+      let tuneStaff = null
+      let tuneJianpu = null
+
       // 1. 渲染到 DOM（如果提供了容器），用于五线谱等可视化
       if (selector || element) {
         const target = element || selector
-        abcjs.renderAbc(target, abc, {
+        tuneStaff = abcjs.renderAbc(target, abc, {
           responsive: 'resize',
           add_classes: true,
           staffwidth: 800,
@@ -43,14 +53,75 @@ export function useAbcRenderer(abcStringRef, options = {}) {
       }
 
       // 2. 单独生成一个 Tune 对象，不依赖 DOM，用于简谱等纯数据场景
-      const tune = abcjs.renderAbc('*', abc, {
+      tuneJianpu = abcjs.renderAbc('*', abc, {
         add_classes: true
       })
 
-      if (tune && tune[0]) {
-        visualObj.value = tune[0]
+      if (tuneJianpu && tuneJianpu[0]) {
+        visualObj.value = tuneJianpu[0]
       } else {
         visualObj.value = null
+      }
+
+      // 3. 建立映射关系 (Map Strategy)
+      if (tuneStaff && tuneStaff[0] && tuneJianpu && tuneJianpu[0]) {
+        let uid = 0
+        const staffLines = tuneStaff[0].lines || []
+        const jianpuLines = tuneJianpu[0].lines || []
+
+        // 假设两个 tune 结构完全一致，同步遍历
+        for (let i = 0; i < staffLines.length; i++) {
+          const staffLine = staffLines[i]
+          const jianpuLine = jianpuLines[i]
+
+          if (staffLine.staff && jianpuLine.staff) {
+            for (let j = 0; j < staffLine.staff.length; j++) {
+              const staffStaff = staffLine.staff[j]
+              const jianpuStaff = jianpuLine.staff[j]
+
+              if (staffStaff.voices && jianpuStaff.voices) {
+                for (let k = 0; k < staffStaff.voices.length; k++) {
+                  const staffVoice = staffStaff.voices[k]
+                  const jianpuVoice = jianpuStaff.voices[k]
+
+                  if (staffVoice && jianpuVoice) {
+                    for (let m = 0; m < staffVoice.length; m++) {
+                      const staffEl = staffVoice[m]
+                      const jianpuEl = jianpuVoice[m]
+
+                      const myId = `note_${uid++}`
+
+                      // 给简谱元素注入 ID
+                      if (jianpuEl) {
+                        jianpuEl._myId = myId
+                      }
+
+                      if (staffEl) {
+                        // 保存 abcjs 的 timing 信息
+                        if (staffEl.midiPitches || staffEl.startTiming !== undefined) {
+                          noteIdToTimingMap.set(myId, {
+                            midiPitches: staffEl.midiPitches,
+                            startTiming: staffEl.startTiming,
+                            duration: staffEl.duration
+                          })
+                        }
+
+                        // 建立 SVG 元素到 _myId 的映射
+                        if (staffEl.abselem && staffEl.abselem.elemset) {
+                          staffEl.abselem.elemset.forEach(svgEl => {
+                            if (svgEl) {
+                              elemToIdMap.set(svgEl, myId)
+                            }
+                          })
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     } catch (err) {
       console.error('[useAbcRenderer] 渲染异常:', err)
@@ -69,12 +140,15 @@ export function useAbcRenderer(abcStringRef, options = {}) {
   }
 
   onUnmounted(() => {
-    // 目前没有持久化的 abcjs 实例需要清理，保留钩子以便未来扩展
+    elemToIdMap.clear()
+    noteIdToTimingMap.clear()
   })
 
   return {
     visualObj,
     syntaxError,
+    elemToIdMap,
+    noteIdToTimingMap,
     renderAbc: doRender
   }
 }

@@ -1,3 +1,4 @@
+<!-- src/views/Workbench.vue -->
 <template>
   <div class="workbench-container" :class="{ 'rack-collapsed': isRackCollapsed }">
     <!-- Header / Toolbar -->

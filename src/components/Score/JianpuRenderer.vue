@@ -1,3 +1,4 @@
+<!-- src/components/Score/JianpuRenderer.vue -->
 <template>
   <JianpuScore
     :tune="tune"
