@@ -74,6 +74,15 @@ export function useAbcRenderer(abcStringRef, options = {}) {
           const myId = `note_${uid++}`
           jEl._myId = myId
 
+          // 核心修复: 无论是否有五线谱，只要 jEl (当前用于播放的 visualObj 元素) 
+          // 内部生成了 abselem (abcjs 的 SVG 表达)，我们就建立映射。
+          // 这样 Workbench 播放时返回的隐式 DOM 就能查找到 ID。
+          if (jEl.abselem && jEl.abselem.elemset) {
+            jEl.abselem.elemset.forEach(svgEl => {
+              if (svgEl) elemToIdMap.set(svgEl, myId)
+            })
+          }
+
           // 如果有五线谱对应元素，建立关联
           if (sEl) {
             // 1. 记录时间信息 (供点击跳转)
@@ -86,7 +95,7 @@ export function useAbcRenderer(abcStringRef, options = {}) {
               })
             }
 
-            // 2. 建立 SVG 元素映射 (供播放高亮反查)
+            // 2. 建立 SVG 元素映射 (供播放高亮反查 - Editor 场景)
             if (sEl.abselem && sEl.abselem.elemset) {
               sEl.abselem.elemset.forEach(svgEl => {
                 if (svgEl) elemToIdMap.set(svgEl, myId)

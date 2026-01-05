@@ -516,10 +516,18 @@ const runTimingCallbacks = () => {
                      // Debug element info
                      console.log(`  Elem [${gIdx}][${eIdx}]:`, el)
                      
-                     // 优先检查 _myId (由 useAbcRenderer 注入)
-                     if (el._myId) {
-                        console.log(`    -> Found ID: ${el._myId}`)
-                        activeIds.push(el._myId)
+                     // 优先检查 _myId (由 useAbcRenderer 注入到数据对象)
+                     // 或者使用 elemToIdMap (由 useAbcRenderer 建立的 DOM->ID 映射)
+                     // Workbench 场景下，el 是 HEADLESS 生成的 SVG 节点，它身上没有 _myId 属性，
+                     // 但我们在 useAbcRenderer 里已经把它放入了 elemToIdMap！
+                     let foundId = el._myId
+                     if (!foundId && elemToIdMap.has(el)) {
+                        foundId = elemToIdMap.get(el)
+                     }
+
+                     if (foundId) {
+                        console.log(`    -> Found ID: ${foundId}`)
+                        activeIds.push(foundId)
                      } else {
                         console.warn(`    -> No ID found! Type: ${el.el_type}`)
                      }
