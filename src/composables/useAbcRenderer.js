@@ -96,6 +96,13 @@ export function useAbcRenderer(abcStringRef, options = {}) {
         }
 
         // 赋值给响应式对象，驱动 UI 更新
+        // Debug: Print visual note sequence
+        console.groupCollapsed("[useAbcRenderer] Visual Note Sequence")
+        flatJianpuNotes.forEach((el, idx) => {
+          console.log(`#${idx} ID:${el._myId} Type:${el.el_type} Pitch:${el.pitches?.[0]?.pitch} Dur:${el.duration}`)
+        })
+        console.groupEnd()
+
         visualObj.value = tuneJianpu[0]
       }
 
