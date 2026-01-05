@@ -90,12 +90,14 @@
             <g v-for="(note, nIdx) in measure.notes" :key="nIdx" 
                :transform="`translate(${note.x}, 0)`"
                :class="{ 'clickable-note': !note.isRest && !note.isGrace }"
-               @click="onNoteClick(note)">
+               @click="onNoteClick(note)"
+               :title="note.id">
                
               <!-- 普通音符 -->
               <template v-if="!note.isGrace">
-                <!-- Highlight: Check IDs OR Time -->
-                <rect v-if="activeIds.has(note.id) || (note.originalId && activeIds.has(note.originalId)) || (playbackTime > 0 && note.absoluteTime <= playbackTime && (note.absoluteTime + note.duration) > playbackTime)"
+                <!-- Highlight: Check IDs ONLY (Strict Mode) -->
+                <!-- Removed time-based fallback which caused duplicate highlights -->
+                <rect v-if="activeIds.has(note.id)"
                   class="highlight-bg" :x="-5" :y="15" :width="(note.displayWidth || config.NOTE_WIDTH) + 10" :height="55" />
                 
                 <!-- Accidental -->
