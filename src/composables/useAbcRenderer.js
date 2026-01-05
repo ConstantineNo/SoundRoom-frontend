@@ -57,45 +57,44 @@ export function useAbcRenderer(abcStringRef, options = {}) {
         add_classes: true
       })
 
-      if (tuneJianpu && tuneJianpu[0]) {
-        visualObj.value = tuneJianpu[0]
-      } else {
-        visualObj.value = null
-      }
-
       // 3. 建立映射关系 (Map Strategy)
-      if (tuneStaff && tuneStaff[0] && tuneJianpu && tuneJianpu[0]) {
+      // 总是遍历简谱对象以注入 ID (JianpuScore 依赖 ID 生成 beams)
+      // 如果存在 tuneStaff，则同时建立映射
+      if (tuneJianpu && tuneJianpu[0]) {
         let uid = 0
-        const staffLines = tuneStaff[0].lines || []
         const jianpuLines = tuneJianpu[0].lines || []
+        const staffLines = (tuneStaff && tuneStaff[0]) ? tuneStaff[0].lines : null
 
-        // 假设两个 tune 结构完全一致，同步遍历
-        for (let i = 0; i < staffLines.length; i++) {
-          const staffLine = staffLines[i]
+        // 以简谱为基准遍历
+        for (let i = 0; i < jianpuLines.length; i++) {
           const jianpuLine = jianpuLines[i]
+          const staffLine = staffLines ? staffLines[i] : null
 
-          if (staffLine.staff && jianpuLine.staff) {
-            for (let j = 0; j < staffLine.staff.length; j++) {
-              const staffStaff = staffLine.staff[j]
+          if (jianpuLine.staff) {
+            for (let j = 0; j < jianpuLine.staff.length; j++) {
               const jianpuStaff = jianpuLine.staff[j]
+              const staffStaff = (staffLine && staffLine.staff) ? staffLine.staff[j] : null
 
-              if (staffStaff.voices && jianpuStaff.voices) {
-                for (let k = 0; k < staffStaff.voices.length; k++) {
-                  const staffVoice = staffStaff.voices[k]
+              if (jianpuStaff.voices) {
+                for (let k = 0; k < jianpuStaff.voices.length; k++) {
                   const jianpuVoice = jianpuStaff.voices[k]
+                  const staffVoice = (staffStaff && staffStaff.voices) ? staffStaff.voices[k] : null
 
-                  if (staffVoice && jianpuVoice) {
-                    for (let m = 0; m < staffVoice.length; m++) {
-                      const staffEl = staffVoice[m]
+                  if (jianpuVoice) {
+                    // 如果存在对应的五线谱 voice，长度应一致；若不一致则防卫性处理
+                    const len = jianpuVoice.length
+                    for (let m = 0; m < len; m++) {
                       const jianpuEl = jianpuVoice[m]
+                      const staffEl = (staffVoice && staffVoice[m]) ? staffVoice[m] : null
 
                       const myId = `note_${uid++}`
 
-                      // 给简谱元素注入 ID
+                      // 1. 给简谱元素注入 ID (核心修复：Workbench 即使没有 staff 也需要 ID)
                       if (jianpuEl) {
                         jianpuEl._myId = myId
                       }
 
+                      // 2. 如果有五线谱元素，建立映射
                       if (staffEl) {
                         // 保存 abcjs 的 timing 信息
                         if (staffEl.midiPitches || staffEl.startTiming !== undefined) {
