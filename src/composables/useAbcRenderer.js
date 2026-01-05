@@ -16,130 +16,126 @@ import abcjs from 'abcjs'
 export function useAbcRenderer(abcStringRef, options = {}) {
   const visualObj = shallowRef(null)
   const syntaxError = ref('')
+
+  // 映射表 (Map)
   const elemToIdMap = new Map()
   const noteIdToTimingMap = new Map()
 
-  // 可选：渲染目标容器
-  // - selector: 传入字符串选择器（如 '#paper'）
-  // - element:  直接传入 DOM 元素引用
   const { selector, element, renderOptions = {}, immediate = true } = options
 
   const doRender = () => {
     const abc = abcStringRef?.value ?? ''
     syntaxError.value = ''
     visualObj.value = null
-
-    // Clear maps
     elemToIdMap.clear()
     noteIdToTimingMap.clear()
 
-    if (!abc || !abc.trim()) {
-      return
-    }
+    if (!abc || !abc.trim()) return
 
     try {
+      // 1. 渲染五线谱 (用于显示和播放)
+      // 注意：这里可能会发生 visualTranspose，且宽度是响应式的
       let tuneStaff = null
-      let tuneJianpu = null
-
-      // 1. 渲染到 DOM（如果提供了容器），用于五线谱等可视化
       if (selector || element) {
         const target = element || selector
         tuneStaff = abcjs.renderAbc(target, abc, {
           responsive: 'resize',
           add_classes: true,
-          staffwidth: 800,
+          staffwidth: 800, // 保持与 Editor 一致的宽度策略
           ...renderOptions
         })
       }
 
-      // 2. 单独生成一个 Tune 对象，不依赖 DOM，用于简谱等纯数据场景
-      tuneJianpu = abcjs.renderAbc('*', abc, {
+      // 2. 渲染简谱数据源 (Headless)
+      // 这是一个纯数据对象，不依赖 DOM 宽度
+      const tuneJianpu = abcjs.renderAbc('*', abc, {
         add_classes: true
       })
 
-      // 3. 建立映射关系 (Map Strategy)
-      // 总是遍历简谱对象以注入 ID (JianpuScore 依赖 ID 生成 beams)
-      // 如果存在 tuneStaff，则同时建立映射
+      // 3. 建立映射 (Flatten Strategy - 核心修复)
+      // 无论五线谱和简谱各自换了多少行，它们的音符总序列是绝对一致的。
+      // 我们把它们“拍扁”成一维数组，然后一一对应。
+
       if (tuneJianpu && tuneJianpu[0]) {
+        const flatJianpuNotes = flattenNotes(tuneJianpu[0])
+        // 如果没有 tuneStaff (比如只在简谱模式)，我们只处理简谱 ID
+        const flatStaffNotes = (tuneStaff && tuneStaff[0]) ? flattenNotes(tuneStaff[0]) : []
+
+        // 校验：如果两者都存在，长度理论上应该一致
+        // 如果不一致（极罕见），我们取较短的长度以防止报错
+        const count = flatStaffNotes.length > 0 ? Math.min(flatJianpuNotes.length, flatStaffNotes.length) : flatJianpuNotes.length
+
         let uid = 0
-        const jianpuLines = tuneJianpu[0].lines || []
-        const staffLines = (tuneStaff && tuneStaff[0]) ? tuneStaff[0].lines : null
+        for (let i = 0; i < count; i++) {
+          const jEl = flatJianpuNotes[i]
+          const sEl = flatStaffNotes.length > 0 ? flatStaffNotes[i] : null
 
-        // 以简谱为基准遍历
-        for (let i = 0; i < jianpuLines.length; i++) {
-          const jianpuLine = jianpuLines[i]
-          const staffLine = staffLines ? staffLines[i] : null
+          // 为简谱元素生成 ID (供 JianpuRenderer 使用)
+          const myId = `note_${uid++}`
+          jEl._myId = myId
 
-          if (jianpuLine.staff) {
-            for (let j = 0; j < jianpuLine.staff.length; j++) {
-              const jianpuStaff = jianpuLine.staff[j]
-              const staffStaff = (staffLine && staffLine.staff) ? staffLine.staff[j] : null
+          // 如果有五线谱对应元素，建立关联
+          if (sEl) {
+            // 1. 记录时间信息 (供点击跳转)
+            // 优先使用五线谱的时间信息，因为它对应音频
+            if (sEl.midiPitches || sEl.startTiming !== undefined) {
+              noteIdToTimingMap.set(myId, {
+                midiPitches: sEl.midiPitches,
+                startTiming: sEl.startTiming,
+                duration: sEl.duration
+              })
+            }
 
-              if (jianpuStaff.voices) {
-                for (let k = 0; k < jianpuStaff.voices.length; k++) {
-                  const jianpuVoice = jianpuStaff.voices[k]
-                  const staffVoice = (staffStaff && staffStaff.voices) ? staffStaff.voices[k] : null
-
-                  if (jianpuVoice) {
-                    // 如果存在对应的五线谱 voice，长度应一致；若不一致则防卫性处理
-                    const len = jianpuVoice.length
-                    for (let m = 0; m < len; m++) {
-                      const jianpuEl = jianpuVoice[m]
-                      const staffEl = (staffVoice && staffVoice[m]) ? staffVoice[m] : null
-
-                      // 仅给音符（含休止符）分配 ID，避免 Key/Meter/Clef 等干扰 ID 序列
-                      // 且必须是 JianpuScore 会渲染的音符 (有 rest 或 pitches)，避免 spacer 导致 ID 错位
-                      if (jianpuEl && jianpuEl.el_type === 'note') {
-                        if (jianpuEl.rest || (jianpuEl.pitches && jianpuEl.pitches.length > 0)) {
-                          const myId = `note_${uid++}`
-                          jianpuEl._myId = myId
-
-                          // 同步给五线谱元素（如果存在且也是音符）
-                          if (staffEl && staffEl.el_type === 'note') {
-                            // 保存 abcjs 的 timing 信息
-                            if (staffEl.midiPitches || staffEl.startTiming !== undefined) {
-                              noteIdToTimingMap.set(myId, {
-                                midiPitches: staffEl.midiPitches,
-                                startTiming: staffEl.startTiming,
-                                duration: staffEl.duration
-                              })
-                            }
-
-                            // 建立 SVG 元素到 _myId 的映射
-                            if (staffEl.abselem && staffEl.abselem.elemset) {
-                              staffEl.abselem.elemset.forEach(svgEl => {
-                                if (svgEl) {
-                                  elemToIdMap.set(svgEl, myId)
-                                }
-                              })
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+            // 2. 建立 SVG 元素映射 (供播放高亮反查)
+            if (sEl.abselem && sEl.abselem.elemset) {
+              sEl.abselem.elemset.forEach(svgEl => {
+                if (svgEl) elemToIdMap.set(svgEl, myId)
+              })
             }
           }
         }
-        // 最后赋值给 visualObj，确保携带了注入的 _myId
+
+        // 赋值给响应式对象，驱动 UI 更新
         visualObj.value = tuneJianpu[0]
       }
+
     } catch (err) {
-      console.error('[useAbcRenderer] 渲染异常:', err)
+      console.error('[useAbcRenderer] Render Error:', err)
       syntaxError.value = err?.message || 'Syntax Error'
     }
   }
 
+  // 辅助：将嵌套的 lines/staff/voices 结构展平为音符数组
+  function flattenNotes(tune) {
+    const notes = []
+    if (!tune.lines) return notes
+
+    tune.lines.forEach(line => {
+      if (line.staff) {
+        line.staff.forEach(staff => {
+          if (staff.voices) {
+            staff.voices.forEach(voice => {
+              voice.forEach(el => {
+                // 只提取实际音符/休止符，跳过小节线(bar)、调号(key)等
+                // 必须与 Editor.vue 中的判定逻辑一致：
+                // if (jianpuEl && jianpuEl.el_type === 'note') ...
+                if (el.el_type === 'note') {
+                  // 进一步过滤：必须是有内容的音符
+                  if (el.rest || (el.pitches && el.pitches.length > 0)) {
+                    notes.push(el)
+                  }
+                }
+              })
+            })
+          }
+        })
+      }
+    })
+    return notes
+  }
+
   if (abcStringRef && immediate) {
-    watch(
-      () => abcStringRef.value,
-      () => {
-        doRender()
-      },
-      { immediate: true }
-    )
+    watch(() => abcStringRef.value, doRender, { immediate: true })
   }
 
   onUnmounted(() => {
@@ -155,4 +151,3 @@ export function useAbcRenderer(abcStringRef, options = {}) {
     renderAbc: doRender
   }
 }
-
