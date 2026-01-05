@@ -87,31 +87,30 @@ export function useAbcRenderer(abcStringRef, options = {}) {
                       const jianpuEl = jianpuVoice[m]
                       const staffEl = (staffVoice && staffVoice[m]) ? staffVoice[m] : null
 
-                      const myId = `note_${uid++}`
-
-                      // 1. 给简谱元素注入 ID (核心修复：Workbench 即使没有 staff 也需要 ID)
-                      if (jianpuEl) {
+                      // 仅给音符（含休止符）分配 ID，避免 Key/Meter/Clef 等干扰 ID 序列
+                      if (jianpuEl && jianpuEl.el_type === 'note') {
+                        const myId = `note_${uid++}`
                         jianpuEl._myId = myId
-                      }
 
-                      // 2. 如果有五线谱元素，建立映射
-                      if (staffEl) {
-                        // 保存 abcjs 的 timing 信息
-                        if (staffEl.midiPitches || staffEl.startTiming !== undefined) {
-                          noteIdToTimingMap.set(myId, {
-                            midiPitches: staffEl.midiPitches,
-                            startTiming: staffEl.startTiming,
-                            duration: staffEl.duration
-                          })
-                        }
+                        // 同步给五线谱元素（如果存在且也是音符）
+                        if (staffEl && staffEl.el_type === 'note') {
+                          // 保存 abcjs 的 timing 信息
+                          if (staffEl.midiPitches || staffEl.startTiming !== undefined) {
+                            noteIdToTimingMap.set(myId, {
+                              midiPitches: staffEl.midiPitches,
+                              startTiming: staffEl.startTiming,
+                              duration: staffEl.duration
+                            })
+                          }
 
-                        // 建立 SVG 元素到 _myId 的映射
-                        if (staffEl.abselem && staffEl.abselem.elemset) {
-                          staffEl.abselem.elemset.forEach(svgEl => {
-                            if (svgEl) {
-                              elemToIdMap.set(svgEl, myId)
-                            }
-                          })
+                          // 建立 SVG 元素到 _myId 的映射
+                          if (staffEl.abselem && staffEl.abselem.elemset) {
+                            staffEl.abselem.elemset.forEach(svgEl => {
+                              if (svgEl) {
+                                elemToIdMap.set(svgEl, myId)
+                              }
+                            })
+                          }
                         }
                       }
                     }
