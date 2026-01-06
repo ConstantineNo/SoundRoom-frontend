@@ -1064,5 +1064,10 @@ watch(viewMode, (newMode) => {
     flex-shrink: 0;
     padding-left: 12px;
   }
+  
+  /* Maximize space for score on mobile */
+  .jianpu-mode {
+    padding: 8px;
+  }
 }
 </style>

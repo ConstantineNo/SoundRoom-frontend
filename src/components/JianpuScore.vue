@@ -91,7 +91,8 @@
                :transform="`translate(${note.x}, 0)`"
                :class="{ 'clickable-note': !note.isRest && !note.isGrace }"
                @click="onNoteClick(note)"
-               :title="note.id">
+               :title="note.id"
+               :data-note-id="note.id">
                
               <!-- 普通音符 -->
               <template v-if="!note.isGrace">
@@ -275,6 +276,26 @@ const emit = defineEmits(['measure-issues', 'seek-to-note'])
 const activeIds = computed(() => new Set(props.activeNoteIds))
 const scoreContainerRef = ref(null)
 
+// Auto-scroll to active note
+watch(() => props.activeNoteIds, (newIds) => {
+  if (newIds && newIds.length > 0 && scoreContainerRef.value) {
+    // Pick the first active note to scroll to
+    const targetId = newIds[0]
+    if (!targetId) return
+
+    // Find DOM element
+    // Note: data-note-id is added in template
+    const el = scoreContainerRef.value.querySelector(`[data-note-id="${targetId}"]`)
+    if (el) {
+      el.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'center'
+      })
+    }
+  }
+}, { flush: 'post' })
+
 // 点击音符跳转
 const onNoteClick = (note) => {
   if (note.isRest) return
@@ -297,17 +318,17 @@ const onNoteClick = (note) => {
 }
 
 // Layout constants
-const isMobile = computed(() => containerWidth.value < 500) // Threshold for mobile layout
+const isMobile = computed(() => containerWidth.value < 600) // Increased threshold for mobile layout
 
 const config = computed(() => {
   if (isMobile.value) {
     return {
-      NOTE_WIDTH: 26,
-      DASH_WIDTH: 26,
-      MEASURE_PADDING: 8,
-      BEAT_GAP: 8,
-      ROW_HEIGHT: 90,
-      MIN_MEASURE_WIDTH: 140,
+      NOTE_WIDTH: 22, // Further reduced for compactness
+      DASH_WIDTH: 20,
+      MEASURE_PADDING: 4, // Minimal padding
+      BEAT_GAP: 4,
+      ROW_HEIGHT: 85,
+      MIN_MEASURE_WIDTH: 100, // Allow much narrower measures
       MEASURE_GAP: 0
     }
   } else {
@@ -328,18 +349,20 @@ const containerWidth = ref(1100) // Default fallback
 
 const measuresPerRow = computed(() => {
   // Ensure at least 1 measure per row
-  // Mobile padding is smaller (e.g. 10px * 2 = 20px), Desktop is 30px * 2 = 60px
+  // Mobile padding is smaller
   const padding = isMobile.value ? 0 : 60
-  const count = Math.floor((containerWidth.value - padding) / config.value.MIN_MEASURE_WIDTH)
+  
+  // Logic tweak: On mobile, try to fit at least 2 measures if possible, or just fill width
+  let count = Math.floor((containerWidth.value - padding) / config.value.MIN_MEASURE_WIDTH)
+  
+  // On very small screens, 1 measure per row is fine, but maybe 2 is better for context?
+  // Let's stick to width-based calculation but allow count to be flexible.
   return Math.max(1, count)
 })
 
 const measureWidth = computed(() => {
   const gap = config.value.MEASURE_GAP
-  // We reserve space for margins (left/right) and gaps
-  // The svgWidth formula is roughly: measures * (w + gap)
-  // We want svgWidth <= containerWidth
-  const padding = isMobile.value ? 2 : 40 // Extra safety margin inside SVG only for desktop
+  const padding = isMobile.value ? 2 : 40 
   const availablePerMeasure = (containerWidth.value - padding) / measuresPerRow.value
   const w = Math.floor(availablePerMeasure - gap)
   
