@@ -32,10 +32,16 @@
             @click="viewMode = 'analysis'">
             📊 语谱图
           </button>
+          <button 
+            class="switch-btn" 
+            :class="{ active: viewMode === 'karaoke' }"
+            @click="viewMode = 'karaoke'">
+            🎤 卡拉OK
+          </button>
        </div>
        
        <!-- Instrument Selector (Only for Dynamic Modes) -->
-       <div v-if="viewMode === 'jianpu' || viewMode === 'staff'" class="instrument-selector">
+       <div v-if="viewMode === 'jianpu' || viewMode === 'staff' || viewMode === 'karaoke'" class="instrument-selector">
           <select v-model="selectedInstrument" @change="onInstrumentChange">
              <option v-for="inst in availableInstruments" :key="inst.value" :value="inst.value">
                {{ inst.label }}
@@ -112,6 +118,21 @@
            :enabled="perfDebugEnabled"
            @toggle="togglePerfDebug"
          />
+      </div>
+
+      <!-- Mode: 卡拉OK -->
+      <div v-if="viewMode === 'karaoke'" class="stage-content karaoke-mode">
+        <div class="stage-inner karaoke-inner">
+          <KaraokeRenderer
+            v-if="visualObj && score"
+            :tune="visualObj"
+            :active-note-ids="abcActiveNoteIds"
+            :target-key="score.song_key"
+            :playback-time="playbackTime"
+            @seek-to-note="onJianpuSeek"
+          />
+          <div v-else class="loading-text">暂无 ABC 乐谱，无法显示卡拉OK模式</div>
+        </div>
       </div>
     </div>
 
@@ -199,6 +220,7 @@ import PerfMonitor from '../components/debug/PerfMonitor.vue'
 import ImageRenderer from '../components/Score/ImageRenderer.vue'
 import JianpuRenderer from '../components/Score/JianpuRenderer.vue'
 import StaffRenderer from '../components/Score/StaffRenderer.vue'
+import KaraokeRenderer from '../components/Score/KaraokeRenderer.vue'
 import { useScoreData } from '../composables/useScoreData'
 import { useAbcRenderer } from '../composables/useAbcRenderer'
 
@@ -397,7 +419,7 @@ const onJianpuSeek = (payload) => {
 const getScoreImageUrl = (path) => `/${path}`
 const getAudioUrl = (path) => `/${path}`
 
-const isMidiMode = computed(() => viewMode.value === 'jianpu' || viewMode.value === 'staff')
+const isMidiMode = computed(() => viewMode.value === 'jianpu' || viewMode.value === 'staff' || viewMode.value === 'karaoke')
 
 // --- UI Logic ---
 const toggleRack = () => {
@@ -946,6 +968,20 @@ watch(viewMode, (newMode) => {
   align-items: flex-start;
   justify-content: center;
   padding: 20px;
+}
+
+.karaoke-mode {
+  position: relative;
+  background: transparent;
+}
+
+.karaoke-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
 }
 
 /* Side Rack */
