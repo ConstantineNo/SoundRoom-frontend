@@ -533,6 +533,12 @@ const getNoteDisplayWidth = (note) => {
   // Base width for the note digit
   let width = config.value.NOTE_WIDTH
   
+  // Add width for grace notes (倚音) - 每个倚音需要额外左侧空间
+  if (note.graceNotes && note.graceNotes.length > 0) {
+    const graceSpacing = isMobile.value ? 8 : 10 // 倚音间距
+    width += note.graceNotes.length * graceSpacing + 4 // 额外偏移
+  }
+  
   // Add width for dashes (延音线) - 每条延音线占位与数字宽度一致
   if (note.dashes > 0) {
     width += note.dashes * config.value.DASH_WIDTH
@@ -607,7 +613,14 @@ const layoutMeasureNotes = (measure) => {
     
     // 拍内紧凑排列
     group.forEach(({ note }) => {
-      note.x = currentX
+      // 为有倚音的音符增加左侧偏移量，使主音符数字位置正确
+      let graceOffset = 0
+      if (note.graceNotes && note.graceNotes.length > 0) {
+        const graceSpacing = isMobile.value ? 8 : 10
+        graceOffset = note.graceNotes.length * graceSpacing + 4
+      }
+      note.x = currentX + graceOffset
+      note.graceOffset = graceOffset // 保存偏移量供后续使用
       currentX += note.displayWidth * scaleFactor
     })
     
@@ -729,13 +742,15 @@ const getGraceSlurPath = (graceNotes, count) => {
 
 // 倚音到主音符的连接弧线
 const getGraceToMainSlurPath = (graceCount) => {
-  // 从倚音组的末尾连接到主音符
-  const startX = -4  // 最后一个倚音右侧
-  const endX = 10    // 主音符左侧
-  const y = 25       // 基线位置
+  // 从倚音组的末尾连接到主音符，根据倚音数量动态计算起点
+  const graceSpacing = isMobile.value ? 8 : 10
+  const startX = -graceCount * graceSpacing + graceSpacing - 2 // 最后一个倚音中心偏右
+  const endX = 12    // 主音符中心偏左
+  const y = 22       // 基线位置
   const midX = (startX + endX) / 2
-  const h = 8
-  const thickness = 1.0
+  const distance = Math.abs(endX - startX)
+  const h = Math.min(10, Math.max(6, distance * 0.15)) // 根据距离动态调整高度
+  const thickness = 0.8 + Math.min(0.6, distance * 0.02)
   
   return `M ${startX} ${y} Q ${midX} ${y - h} ${endX} ${y} Q ${midX} ${y - h + thickness} ${startX} ${y} Z`
 }
@@ -743,14 +758,14 @@ const getGraceToMainSlurPath = (graceCount) => {
 // 倚音组内部的弧线（多个倚音时使用）
 const getGraceGroupSlurPath = (graceCount) => {
   if (graceCount < 2) return ''
-  const graceSpacing = 10
-  const startX = -graceCount * graceSpacing - 2 + 5  // 第一个倚音中心
-  const endX = -2 - 5  // 最后一个倚音中心
-  const y = 10
+  const graceSpacing = isMobile.value ? 8 : 10
+  const startX = -graceCount * graceSpacing + 3  // 第一个倚音中心
+  const endX = -graceSpacing + 3  // 最后一个倚音中心
+  const y = 8
   const midX = (startX + endX) / 2
   const distance = Math.abs(endX - startX)
-  const h = Math.min(6, Math.max(3, distance * 0.3))
-  const thickness = 0.8
+  const h = Math.min(5, Math.max(3, distance * 0.25))
+  const thickness = 0.6 + Math.min(0.4, distance * 0.02)
   
   return `M ${startX} ${y} Q ${midX} ${y - h} ${endX} ${y} Q ${midX} ${y - h + thickness} ${startX} ${y} Z`
 }
@@ -768,11 +783,11 @@ const getSlurPath = (slur) => {
   // startX 和 endX 已经是音符中心位置 (note.x + NOTE_WIDTH/2)
   const x1 = slur.startX
   const x2 = slur.endX
-  const y = 18 // 比 tie 稍高一点
+  const y = 12 // 圆滑线位置比连音线(tie y=22)更高，避免重叠
   const midX = (x1 + x2) / 2
   const distance = Math.abs(x2 - x1)
-  const h = Math.min(15, Math.max(8, distance * 0.15))
-  const thickness = 1.5 + Math.min(3, distance * 0.04)
+  const h = Math.min(10, Math.max(5, distance * 0.12)) // 稍微降低高度
+  const thickness = 1.2 + Math.min(2, distance * 0.03) // 稍细一些以区分
   
   return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
 }
@@ -1022,8 +1037,7 @@ const computedRows = computed(() => {
   
   let beatPosition = 0
   let pendingTie = null
-  let slurStartInfo = null // { measureIdx, noteIdx, x_offset }
-  let inSlur = false
+  let slurStack = [] // 使用栈结构支持嵌套圆滑线 [{ measureIdx, noteIdx }]
   let pendingStartBarType = null
   let currentAccumulatedDuration = 0
   const globalNotes = []  // 用于跨小节连音线
@@ -1343,12 +1357,12 @@ const computedRows = computed(() => {
                 }
                 if (noteObj.hasTieStart) pendingTie = { measureIdx: currentMeasureIdx, noteIdx: noteIndex, pitch: noteObj.pitch }
                
-               // Slur Logic (Simplified)
+               // Slur Logic (使用栈结构支持嵌套圆滑线)
                if (noteObj.hasSlurStart) {
-                 inSlur = true
-                 slurStartInfo = { measureIdx: currentMeasureIdx, noteIdx: noteIndex }
+                 slurStack.push({ measureIdx: currentMeasureIdx, noteIdx: noteIndex })
                }
-               if (noteObj.hasSlurEnd && inSlur && slurStartInfo) {
+               if (noteObj.hasSlurEnd && slurStack.length > 0) {
+                 const slurStartInfo = slurStack.pop() // 取出最近的起点（后进先出）
                  if (slurStartInfo.measureIdx === currentMeasureIdx) {
                    currentMeasure.slurs.push({ startIdx: slurStartInfo.noteIdx, endIdx: noteIndex })
                  } else {
@@ -1360,8 +1374,6 @@ const computedRows = computed(() => {
                      endNoteIdx: noteIndex
                    })
                  }
-                 inSlur = false
-                 slurStartInfo = null
                }
             }
           } else if (el.el_type === 'part') {
