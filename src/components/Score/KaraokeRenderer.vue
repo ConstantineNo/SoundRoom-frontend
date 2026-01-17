@@ -36,6 +36,16 @@
                 <!-- 小节号 -->
                 <text class="measure-number" x="5" y="15">{{ measure.measureNumber }}</text>
                 
+                <!-- 连音线 (Ties) -->
+                <path v-for="(tie, tIdx) in measure.ties" :key="'tie'+tIdx"
+                      class="tie-path"
+                      :d="getTiePath(tie)" />
+                
+                <!-- 圆滑线 (Slurs) -->
+                <path v-for="(slur, sIdx) in measure.slurs" :key="'slur'+sIdx"
+                      class="slur-path"
+                      :d="getSlurPath(slur)" />
+                
                 <!-- 音符 -->
                 <g v-for="(note, nIdx) in measure.notes" :key="nIdx"
                    :transform="`translate(${note.x}, 0)`"
@@ -47,6 +57,37 @@
                         :x="-5" :y="20" 
                         :width="(note.displayWidth || noteWidth) + 10" 
                         :height="50" />
+                  
+                  <!-- 倚音 -->
+                  <g v-if="note.graceNotes && note.graceNotes.length > 0" 
+                     class="grace-notes-group">
+                    <g v-for="(grace, gIdx) in note.graceNotes" :key="'grace'+gIdx"
+                       :transform="`translate(${-10 - (note.graceNotes.length - 1 - gIdx) * 12}, -5)`">
+                      <!-- 倚音高八度点 -->
+                      <template v-if="grace.highDots > 0">
+                        <circle v-for="d in grace.highDots" :key="'gh'+d"
+                                class="grace-octave-dot"
+                                :cx="5" :cy="28 - (d-1)*4" r="1.5" />
+                      </template>
+                      <!-- 倚音变音记号 -->
+                      <text v-if="grace.accidental" class="grace-accidental" x="-2" y="38">{{ grace.accidental }}</text>
+                      <!-- 倚音数字 -->
+                      <text class="grace-note-number" x="5" y="38">{{ grace.number }}</text>
+                      <!-- 倚音低八度点 -->
+                      <template v-if="grace.lowDots > 0">
+                        <circle v-for="d in grace.lowDots" :key="'gl'+d"
+                                class="grace-octave-dot"
+                                :cx="5" :cy="44 + (d-1)*4" r="1.5" />
+                      </template>
+                      <!-- 倚音下划线 -->
+                      <template v-if="grace.underlines > 0">
+                        <line v-for="u in grace.underlines" :key="'gu'+u"
+                              class="grace-underline"
+                              :x1="0" :y1="44 + (u-1)*3"
+                              :x2="10" :y2="44 + (u-1)*3" />
+                      </template>
+                    </g>
+                  </g>
                   
                   <!-- 高八度点 -->
                   <template v-if="note.highDots > 0">
@@ -117,9 +158,50 @@
                 <!-- 小节号 -->
                 <text class="measure-number" x="5" y="15">{{ measure.measureNumber }}</text>
                 
+                <!-- 连音线 (Ties) -->
+                <path v-for="(tie, tIdx) in measure.ties" :key="'tie'+tIdx"
+                      class="tie-path"
+                      :d="getTiePath(tie)" />
+                
+                <!-- 圆滑线 (Slurs) -->
+                <path v-for="(slur, sIdx) in measure.slurs" :key="'slur'+sIdx"
+                      class="slur-path"
+                      :d="getSlurPath(slur)" />
+                
                 <!-- 音符 -->
                 <g v-for="(note, nIdx) in measure.notes" :key="nIdx"
                    :transform="`translate(${note.x}, 0)`">
+                  
+                  <!-- 倚音 -->
+                  <g v-if="note.graceNotes && note.graceNotes.length > 0" 
+                     class="grace-notes-group">
+                    <g v-for="(grace, gIdx) in note.graceNotes" :key="'grace'+gIdx"
+                       :transform="`translate(${-10 - (note.graceNotes.length - 1 - gIdx) * 12}, -5)`">
+                      <!-- 倚音高八度点 -->
+                      <template v-if="grace.highDots > 0">
+                        <circle v-for="d in grace.highDots" :key="'gh'+d"
+                                class="grace-octave-dot"
+                                :cx="5" :cy="28 - (d-1)*4" r="1.5" />
+                      </template>
+                      <!-- 倚音变音记号 -->
+                      <text v-if="grace.accidental" class="grace-accidental" x="-2" y="38">{{ grace.accidental }}</text>
+                      <!-- 倚音数字 -->
+                      <text class="grace-note-number" x="5" y="38">{{ grace.number }}</text>
+                      <!-- 倚音低八度点 -->
+                      <template v-if="grace.lowDots > 0">
+                        <circle v-for="d in grace.lowDots" :key="'gl'+d"
+                                class="grace-octave-dot"
+                                :cx="5" :cy="44 + (d-1)*4" r="1.5" />
+                      </template>
+                      <!-- 倚音下划线 -->
+                      <template v-if="grace.underlines > 0">
+                        <line v-for="u in grace.underlines" :key="'gu'+u"
+                              class="grace-underline"
+                              :x1="0" :y1="44 + (u-1)*3"
+                              :x2="10" :y2="44 + (u-1)*3" />
+                      </template>
+                    </g>
+                  </g>
                   
                   <!-- 高八度点 -->
                   <template v-if="note.highDots > 0">
@@ -209,7 +291,7 @@ const containerWidth = ref(800)
 // 布局常量
 const noteWidth = 32
 const measurePadding = 30
-const lineHeight = 90
+const lineHeight = 110  // 增加高度以容纳倚音和圆滑线
 
 // 计算每个小节的渲染宽度
 const measureRenderWidth = computed(() => {
@@ -316,9 +398,12 @@ const allMeasures = computed(() => {
   
   let keyRoot = 0
   const measures = []
-  let currentMeasure = { notes: [], totalDuration: 0, measureNumber: 0 }
+  let currentMeasure = { notes: [], ties: [], slurs: [], totalDuration: 0, measureNumber: 0 }
   let measureIndex = 0
   let beatPosition = 0
+  let pendingTie = null
+  let slurStartInfo = null
+  let inSlur = false
   
   props.tune.lines.forEach(line => {
     if (!line.staff) return
@@ -334,20 +419,35 @@ const allMeasures = computed(() => {
               currentMeasure.measureNumber = measureIndex
               
               // 布局音符位置
-              let currentX = measurePadding
-              currentMeasure.notes.forEach(note => {
-                note.displayWidth = getNoteDisplayWidth(note)
-                note.x = currentX
-                currentX += note.displayWidth + 8
-              })
+              layoutMeasureNotes(currentMeasure)
               
               measures.push({ ...currentMeasure })
             }
-            currentMeasure = { notes: [], totalDuration: 0, measureNumber: 0 }
+            currentMeasure = { notes: [], ties: [], slurs: [], totalDuration: 0, measureNumber: 0 }
             beatPosition = 0
             
           } else if (el.el_type === 'note') {
             const duration = el.duration || 0.25
+            
+            // 解析倚音
+            let graceNotesData = []
+            if (el.gracenotes && el.gracenotes.length > 0) {
+              graceNotesData = el.gracenotes.map((grace) => {
+                const graceData = pitchToJianpu(grace.pitch, keyRoot)
+                const graceDuration = grace.duration || 0.0625
+                let graceUnderlines = 2
+                if (graceDuration >= 0.125) graceUnderlines = 1
+                if (graceDuration < 0.0625) graceUnderlines = 3
+                
+                return {
+                  number: graceData.number,
+                  highDots: graceData.octave > 0 ? graceData.octave : 0,
+                  lowDots: graceData.octave < 0 ? Math.abs(graceData.octave) : 0,
+                  accidental: grace.accidental ? (ACCIDENTAL_SYMBOLS[grace.accidental] || null) : null,
+                  underlines: graceUnderlines
+                }
+              })
+            }
             
             if (el.rest) {
               const rhythm = getDurationInfo(duration, true)
@@ -361,7 +461,8 @@ const allMeasures = computed(() => {
                 accidental: null,
                 ...rhythm,
                 duration: duration,
-                relativeStartTime: beatPosition
+                relativeStartTime: beatPosition,
+                graceNotes: null
               })
               beatPosition += duration
               currentMeasure.totalDuration += duration
@@ -371,7 +472,7 @@ const allMeasures = computed(() => {
               const jData = pitchToJianpu(p.pitch, keyRoot)
               const rhythm = getDurationInfo(duration, false)
               
-              currentMeasure.notes.push({
+              const noteObj = {
                 id: elId,
                 originalId: elId,
                 number: jData.number,
@@ -382,10 +483,38 @@ const allMeasures = computed(() => {
                 ...rhythm,
                 duration: duration,
                 pitch: p.pitch,
-                relativeStartTime: beatPosition
-              })
+                relativeStartTime: beatPosition,
+                graceNotes: graceNotesData.length > 0 ? graceNotesData : null,
+                hasTieStart: !!(p.startTie || el.startTie),
+                hasTieEnd: !!(p.endTie || el.endTie),
+                hasSlurStart: !!(p.startSlur || el.startSlur),
+                hasSlurEnd: !!(p.endSlur || el.endSlur)
+              }
+              
+              const noteIndex = currentMeasure.notes.length
+              currentMeasure.notes.push(noteObj)
               beatPosition += duration
               currentMeasure.totalDuration += duration
+              
+              // Tie 逻辑
+              if (pendingTie && pendingTie.pitch === noteObj.pitch) {
+                currentMeasure.ties.push({ startIdx: pendingTie.noteIdx, endIdx: noteIndex })
+                pendingTie = null
+              }
+              if (noteObj.hasTieStart) {
+                pendingTie = { noteIdx: noteIndex, pitch: noteObj.pitch }
+              }
+              
+              // Slur 逻辑
+              if (noteObj.hasSlurStart) {
+                inSlur = true
+                slurStartInfo = { noteIdx: noteIndex }
+              }
+              if (noteObj.hasSlurEnd && inSlur && slurStartInfo) {
+                currentMeasure.slurs.push({ startIdx: slurStartInfo.noteIdx, endIdx: noteIndex })
+                inSlur = false
+                slurStartInfo = null
+              }
             }
           }
         })
@@ -397,19 +526,73 @@ const allMeasures = computed(() => {
   if (currentMeasure.notes.length > 0) {
     measureIndex++
     currentMeasure.measureNumber = measureIndex
-    
-    let currentX = measurePadding
-    currentMeasure.notes.forEach(note => {
-      note.displayWidth = getNoteDisplayWidth(note)
-      note.x = currentX
-      currentX += note.displayWidth + 8
-    })
-    
+    layoutMeasureNotes(currentMeasure)
     measures.push({ ...currentMeasure })
   }
   
   return measures
 })
+
+// 布局小节内音符
+const layoutMeasureNotes = (measure) => {
+  let currentX = measurePadding
+  measure.notes.forEach(note => {
+    note.displayWidth = getNoteDisplayWidth(note)
+    note.x = currentX
+    currentX += note.displayWidth + 8
+  })
+  
+  // 更新 tie/slur 坐标
+  measure.ties.forEach(tie => {
+    const startNote = measure.notes[tie.startIdx]
+    const endNote = measure.notes[tie.endIdx]
+    if (startNote && endNote) {
+      tie.startX = startNote.x + noteWidth / 2
+      tie.endX = endNote.x + noteWidth / 2
+    }
+  })
+  
+  measure.slurs.forEach(slur => {
+    const startNote = measure.notes[slur.startIdx]
+    const endNote = measure.notes[slur.endIdx]
+    if (startNote && endNote) {
+      slur.startX = startNote.x + noteWidth / 2
+      slur.endX = endNote.x + noteWidth / 2
+    }
+  })
+}
+
+// 获取倚音组下划线数量
+const getGraceUnderlineCount = (graceNotes) => {
+  if (!graceNotes || graceNotes.length === 0) return 0
+  return Math.max(...graceNotes.map(g => g.underlines || 0))
+}
+
+// 连音线路径
+const getTiePath = (tie) => {
+  if (!tie.startX || !tie.endX) return ''
+  const x1 = tie.startX
+  const x2 = tie.endX
+  const y = 25
+  const midX = (x1 + x2) / 2
+  const distance = Math.abs(x2 - x1)
+  const h = Math.min(10, Math.max(5, distance * 0.12))
+  const thickness = 1.5
+  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+}
+
+// 圆滑线路径
+const getSlurPath = (slur) => {
+  if (!slur.startX || !slur.endX) return ''
+  const x1 = slur.startX
+  const x2 = slur.endX
+  const y = 20
+  const midX = (x1 + x2) / 2
+  const distance = Math.abs(x2 - x1)
+  const h = Math.min(12, Math.max(6, distance * 0.15))
+  const thickness = 1.5
+  return `M ${x1} ${y} Q ${midX} ${y - h} ${x2} ${y} Q ${midX} ${y - h + thickness} ${x1} ${y} Z`
+}
 
 const totalMeasures = computed(() => allMeasures.value.length)
 
@@ -729,6 +912,42 @@ onUnmounted(() => {
 .bar-line {
   stroke: rgba(255, 255, 255, 0.4);
   stroke-width: 1;
+}
+
+/* 倚音样式 */
+.grace-notes-group {
+  opacity: 0.9;
+}
+
+.grace-note-number {
+  font-size: 12px;
+  fill: #fff;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.grace-octave-dot {
+  fill: #fff;
+}
+
+.grace-accidental {
+  font-size: 10px;
+  fill: #fff;
+}
+
+.grace-underline {
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+/* 连音线/圆滑线样式 */
+.tie-path {
+  fill: #fff;
+  opacity: 0.8;
+}
+
+.slur-path {
+  fill: rgba(255, 255, 255, 0.7);
 }
 
 /* 高亮效果 */
