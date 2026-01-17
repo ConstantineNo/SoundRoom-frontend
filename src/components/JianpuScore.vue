@@ -138,7 +138,7 @@
                   <text v-for="(line, lIdx) in note.lyric" :key="'ly'+lIdx" 
                         class="lyric-text" 
                         :x="config.NOTE_WIDTH / 2" 
-                        :y="90 + lIdx * 20">
+                        :y="105 + lIdx * 20">
                     {{ line }}
                   </text>
                 </template>
@@ -161,8 +161,8 @@
                     <circle v-if="grace.highDots > 0" class="grace-octave-dot" :cx="5" :cy="18" r="1.5" />
                     <!-- 音符数字 (微型) -->
                     <text class="grace-note-number" x="5" y="32">{{ grace.number }}</text>
-                    <!-- 低八度点 -->
-                    <circle v-if="grace.lowDots > 0" class="grace-octave-dot" :cx="5" :cy="38" r="1.5" />
+                    <!-- 低八度点 (放在下划线下方，考虑下划线数量) -->
+                    <circle v-if="grace.lowDots > 0" class="grace-octave-dot" :cx="5" :cy="28 + getGraceUnderlineCount(note.graceNotes) * 3 + 4" r="1.5" />
                   </g>
                   <!-- 倚音组共享的微型下划线 (减时线) -->
                   <template v-if="getGraceUnderlineCount(note.graceNotes) > 0">
