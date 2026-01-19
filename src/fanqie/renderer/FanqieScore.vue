@@ -95,7 +95,9 @@
 
               <!-- Dashes (Duration Extend) -->
               <g v-if="note.durationExtendCount > 0">
-                  <text v-for="i in note.durationExtendCount" :key="'d'+i" :x="15 * i" y="0" class="dash"> - </text>
+                  <text v-for="i in note.durationExtendCount" :key="'d'+i"
+                        :x="12 + (15 * (i - 1))" y="0"
+                        class="dash">—</text>
               </g>
 
               <!-- Dots -->
@@ -441,7 +443,10 @@ const totalHeight = computed(() => {
 }
 
 .dash {
-    font-size: 20px;
+    font-size: 16px;
+    font-weight: bold;
+    text-anchor: start;
+    dominant-baseline: central;
 }
 
 .lyric-text {
