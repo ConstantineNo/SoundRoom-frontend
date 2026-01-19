@@ -116,7 +116,7 @@
           </g>
           
           <!-- Lyrics Row -->
-          <g v-if="line.lyrics && line.lyrics.length" transform="translate(0, 70)">
+          <g v-if="line.computedLyrics && line.computedLyrics.length" transform="translate(0, 70)">
              <text v-for="(word, wIdx) in line.computedLyrics" :key="wIdx" :x="word.x" y="0" class="lyric-text">
                 {{ word.text }}
              </text>
