@@ -277,8 +277,10 @@ const layoutLines = computed(() => {
                         continue
                     }
 
-                    // 处理标点符号 - 不对应音符，直接跳过
-                    if ('，。！？；：、""''…—·'.includes(char) || /[,\.!?;:"'\-]/.test(char)) {
+                    // 优化：将所有标点符号合并到一个正则中
+                    // 包含中文标点：，。！？；：、“”…—·
+                    // 包含英文标点：, . ! ? ; : " ' -
+                    if (/[，。！？；：、“”…—·,\.!?;:"'\-]/.test(char)) {
                         charIndex++
                         continue
                     }
