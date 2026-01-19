@@ -61,45 +61,39 @@
                 {{ getNoteText(note) }}
               </text>
 
-              <!-- Octave dots -->
+              <!-- High Octave dots (Above) -->
               <g v-if="note.octave > 0">
-                 <circle v-for="i in note.octave" :key="'h'+i" cy="-12" :cx="0" :r="1.5" :transform="`translate(0, ${-(i-1)*4})`" />
-              </g>
-              <g v-if="note.octave < 0">
-                 <circle v-for="i in Math.abs(note.octave)" :key="'l'+i" cy="8" :cx="0" :r="1.5" :transform="`translate(0, ${(i-1)*4})`" />
+                 <circle v-for="i in note.octave" :key="'h'+i" cy="-18" :cx="0" :r="1.5" :transform="`translate(0, ${-(i-1)*5})`" />
               </g>
 
-              <!-- Underlines (Duration Reduce) -->
-              <g v-if="note.durationReduceCount > 0">
-                 <line v-for="i in note.durationReduceCount" :key="'u'+i" 
-                       x1="-6" :y1="12 + (i-1)*4" 
-                       x2="6" :y2="12 + (i-1)*4" 
-                       class="underline" />
+              <!-- Low Octave dots (Below Underlines) -->
+              <!-- Y start = 12 + (reduceCount * 5) + 5 padding -->
+              <g v-if="note.octave < 0">
+                 <circle v-for="i in Math.abs(note.octave)" :key="'l'+i" 
+                         :cy="16 + (note.durationReduceCount * 5) + 4" 
+                         :cx="0" :r="1.5" 
+                         :transform="`translate(0, ${(i-1)*5})`" />
               </g>
 
               <!-- Dashes (Duration Extend) -->
               <g v-if="note.durationExtendCount > 0">
-                  <!-- Render dashes to the right -->
-                  <!-- Need layout to spacing dashes? Wrapper handles it usually? -->
-                  <!-- For this simple renderer, assume distinct notes. -->
-                  <!-- Actually extends are separate tokens usually? No, properties of note in AST? -->
-                  <!-- AST: durationExtendCount. Tokenizer: - is DURATION_EXTEND. -->
-                  <!-- Parser attaches to previous note. -->
-                  <!-- So we render dashes AFTER the note. -->
                   <text v-for="i in note.durationExtendCount" :key="'d'+i" :x="15 * i" y="0" class="dash"> - </text>
               </g>
 
               <!-- Dots -->
-              <circle v-if="note.dots > 0" cx="10" cy="0" r="1.5" />
+              <circle v-if="note.dots > 0" cx="12" cy="0" r="1.5" />
 
               <!-- Accidentals -->
-              <text v-if="note.accidental === 'sharp'" x="-12" y="-5" class="accidental">#</text>
-              <text v-if="note.accidental === 'flat'" x="-12" y="-5" class="accidental">b</text>
-              <text v-if="note.accidental === 'natural'" x="-12" y="-5" class="accidental">=</text>
+              <text v-if="note.accidental === 'sharp'" x="-14" y="-8" class="accidental">#</text>
+              <text v-if="note.accidental === 'flat'" x="-14" y="-8" class="accidental">b</text>
+              <text v-if="note.accidental === 'natural'" x="-14" y="-8" class="accidental">=</text>
+            </g>
 
-              <!-- Ornaments -->
-              <!-- Slurs (Start) -->
-              
+            <!-- Beams (Underlines) -->
+            <g v-for="(beam, bIdx) in measure.beams" :key="'b'+bIdx">
+                <line :x1="beam.x1" :y1="30 + 12 + (beam.level-1)*5" 
+                      :x2="beam.x2" :y2="30 + 12 + (beam.level-1)*5" 
+                      class="underline" />
             </g>
           </g>
           
@@ -174,12 +168,43 @@ const layoutLines = computed(() => {
             
             // Padding for bar line
             currentX += 10
+
+            // Beaming Logic (Merge Underlines)
+            const beams = []
+            const maxReduce = Math.max(0, ...notes.map(n => n.durationReduceCount || 0))
+            
+            for (let level = 1; level <= maxReduce; level++) {
+                let startIdx = -1
+                for (let i = 0; i < notes.length; i++) {
+                    if ((notes[i].durationReduceCount || 0) >= level) {
+                        if (startIdx === -1) startIdx = i
+                    } else {
+                        if (startIdx !== -1) {
+                            // End sequence
+                            beams.push({
+                                x1: notes[startIdx].relativeX - 8,
+                                x2: notes[i-1].relativeX + 8,
+                                level
+                            })
+                            startIdx = -1
+                        }
+                    }
+                }
+                if (startIdx !== -1) {
+                    beams.push({
+                        x1: notes[startIdx].relativeX - 8,
+                        x2: notes[notes.length-1].relativeX + 8,
+                        level
+                    })
+                }
+            }
             
             return {
                 ...m,
                 x: mStart, // absolute start of measure
                 width: currentX - mStart, // pixel width
-                notes
+                notes,
+                beams
             }
         })
         
@@ -261,7 +286,7 @@ const totalHeight = computed(() => {
 }
 
 .note-text.rest {
-    font-weight: normal;
+    /* Bold like others */
 }
 
 .underline {
