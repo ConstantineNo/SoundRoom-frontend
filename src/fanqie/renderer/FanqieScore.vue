@@ -302,9 +302,38 @@ const totalHeight = computed(() => {
     stroke-width: 3;
 }
 
+.note-text {
+  font-size: 20px;
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.note-text.rest {
+    /* Bold like others */
+}
+
+.underline {
+  stroke: black;
+  stroke-width: 1.5;
+}
+
+.ending-line {
+    stroke: black;
+    stroke-width: 1;
+    fill: none;
+}
+
+.ending-label {
+    font-size: 10px;
+}
+
+.dash {
+    font-size: 20px;
+}
+
 .lyric-text {
     font-size: 14px;
-    font-family: "Microsoft YaHei", sans-serif;
     text-anchor: middle;
 }
 
