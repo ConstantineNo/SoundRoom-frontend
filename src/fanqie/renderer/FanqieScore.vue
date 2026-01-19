@@ -54,7 +54,7 @@
             </g>
 
             <!-- Notes -->
-            <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.x}, 30)`">
+            <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.relativeX}, 30)`">
               
               <!-- Pitch -->
               <text class="note-text" :class="{ 'rest': note.type === 'rest' }">
@@ -152,7 +152,6 @@ const layoutLines = computed(() => {
     
     props.score.lines.forEach(rawLine => {
         // Calculate Measure Widths
-        // Simple fixed width per note for now
         let currentX = 20
         const measures = rawLine.measures.map(m => {
             const mStart = currentX
@@ -160,9 +159,13 @@ const layoutLines = computed(() => {
             // Notes
             const notes = m.notes.map(n => {
                 const width = 30 + (n.durationExtendCount * 15)
+                const relativeX = (currentX - mStart) + 15 // relative to measure start
+                const absoluteX = currentX + 15 // absolute in line
+                
                 const noteObj = {
                     ...n,
-                    x: currentX + 15, // center offset
+                    relativeX,
+                    absoluteX,
                     width
                 }
                 currentX += width
@@ -174,21 +177,18 @@ const layoutLines = computed(() => {
             
             return {
                 ...m,
-                x: mStart,
+                x: mStart, // absolute start of measure
                 width: currentX - mStart, // pixel width
                 notes
             }
         })
         
         // Lyrics layout
-        // Naive 1-to-1 mapping to notes
         const computedLyrics = []
         if (rawLine.lyrics && rawLine.lyrics.length > 0) {
             // Flatten notes from all measures in this line
             const allNotes = measures.flatMap(m => m.notes)
             
-            // Support multiple lyric lines? Start with just the first row for now
-            // Filter out empty strings that might come from splitting multiple spaces
             const words = rawLine.lyrics[0].filter(w => w.trim() !== '') 
             let noteIndex = 0
             
@@ -196,14 +196,9 @@ const layoutLines = computed(() => {
                 if (noteIndex < allNotes.length) {
                     computedLyrics.push({
                         text: w,
-                        x: allNotes[noteIndex].x // align with note center
+                        x: allNotes[noteIndex].absoluteX // aligns with note center (absolute)
                     })
                     noteIndex++
-                    // Fanqie spec: 
-                    // - If word is a hyphen '-', it might mean skipping a note or extending?
-                    // - Standard usually: one word/syllable per note.
-                    // - If note is a tie or slur, logic might differ.
-                    // - Assuming 1-to-1 for basic implementation.
                 }
             })
         }
