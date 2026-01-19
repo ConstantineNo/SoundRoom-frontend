@@ -235,21 +235,75 @@ const layoutLines = computed(() => {
         // Lyrics layout
         const computedLyrics = []
         if (rawLine.lyrics && rawLine.lyrics.length > 0) {
-            // Flatten notes from all measures in this line
+            // Flatten notes from all measures in this line (只包含实际发音的音符，不包括增时线延续的音符)
             const allNotes = measures.flatMap(m => m.notes)
-            
-            const words = rawLine.lyrics[0].filter(w => w.trim() !== '') 
-            let noteIndex = 0
-            
-            words.forEach((w, i) => {
-                if (noteIndex < allNotes.length) {
-                    computedLyrics.push({
-                        text: w,
-                        x: allNotes[noteIndex].absoluteX // aligns with note center (absolute)
-                    })
-                    noteIndex++
+
+            // 过滤出需要对应歌词的音符：休止符和第一个音符需要歌词，增时线延续的音符不需要
+            const notesForLyrics = []
+            allNotes.forEach((note, idx) => {
+                // 如果前一个音符有增时线，当前音符是延续，不需要新歌词
+                // 但我们目前没有这个信息，所以基于音符类型判断
+                // 根据番茄简谱规范：增时线 - 不需要对应歌词
+                // 这里我们假设每个独立的音符都需要歌词（除非是隐藏休止符）
+                if (note.type !== 'hiddenRest') {
+                    notesForLyrics.push(note)
                 }
             })
+
+            // 处理第一行歌词（支持多行歌词）
+            const lyricLine = rawLine.lyrics[0]
+            if (lyricLine && lyricLine.length > 0) {
+                // 将歌词字符串数组连接成一个字符串
+                const lyricText = lyricLine.join(' ')
+
+                // 处理番茄简谱歌词规则
+                let noteIndex = 0
+                let charIndex = 0
+
+                while (charIndex < lyricText.length && noteIndex < notesForLyrics.length) {
+                    const char = lyricText[charIndex]
+                    const note = notesForLyrics[noteIndex]
+
+                    // 跳过空格
+                    if (char === ' ') {
+                        charIndex++
+                        continue
+                    }
+
+                    // @ 跳过一个音符
+                    if (char === '@') {
+                        noteIndex++
+                        charIndex++
+                        continue
+                    }
+
+                    // 处理标点符号 - 不对应音符，直接跳过
+                    if ('，。！？；：、""''…—·'.includes(char) || /[,\.!?;:"'\-]/.test(char)) {
+                        charIndex++
+                        continue
+                    }
+
+                    // 处理 ~ 连接符（两个字对应一个音符）
+                    if (lyricText[charIndex + 1] === '~' && charIndex + 2 < lyricText.length) {
+                        const combinedText = char + lyricText[charIndex + 2]
+                        computedLyrics.push({
+                            text: combinedText,
+                            x: note.absoluteX
+                        })
+                        noteIndex++
+                        charIndex += 3 // 跳过 "字~字"
+                        continue
+                    }
+
+                    // 普通字符对应一个音符
+                    computedLyrics.push({
+                        text: char,
+                        x: note.absoluteX
+                    })
+                    noteIndex++
+                    charIndex++
+                }
+            }
         }
 
         lines.push({
