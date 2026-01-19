@@ -94,10 +94,9 @@
               </g>
 
               <!-- Dashes (Duration Extend) -->
-              <g v-if="note.durationExtendCount > 0">
-                  <text v-for="i in note.durationExtendCount" :key="'d'+i"
-                        :x="12 + (15 * (i - 1))" y="0"
-                        class="dash">—</text>
+              <g v-if="note.extendLines && note.extendLines.length > 0">
+                  <text v-for="line in note.extendLines" :key="line.key"
+                        :x="line.dx" y="0" class="dash">—</text>
               </g>
 
               <!-- Dots -->
@@ -171,26 +170,27 @@ const getNoteText = (note) => {
  */
 const calculateNoteDuration = (note) => {
     // 基础时值：四分音符 = 1
-    let baseDuration = 1
+    let duration = 1
 
     // 减时线：每个 / 让时值减半
     if (note.durationReduceCount > 0) {
-        baseDuration = baseDuration / Math.pow(2, note.durationReduceCount)
+        duration = duration / Math.pow(2, note.durationReduceCount)
     }
 
-    // 增时线：每个 - 让时值加倍
+    // 增时线：每个 - 增加一个基础单位的时值（通常是四分音符）
+    // 1 - - - = 1 + 3 = 4
     if (note.durationExtendCount > 0) {
-        baseDuration = baseDuration * Math.pow(2, note.durationExtendCount)
+        duration += note.durationExtendCount
     }
 
     // 附点：增加原时值的一半
     if (note.dots > 0) {
         // 一个附点 = 1.5倍，两个附点 = 1.75倍
         const dotMultiplier = note.dots === 1 ? 1.5 : 1.75
-        baseDuration = baseDuration * dotMultiplier
+        duration = duration * dotMultiplier
     }
 
-    return baseDuration
+    return duration
 }
 
 // Layout Calculation
@@ -325,11 +325,32 @@ const layoutLines = computed(() => {
                 // 音符占用的宽度
                 const assignedWidth = mWidth * percent
 
+                // 计算内部布局：音符本体 + 增时线
+                // 将分配的宽度分为 (1 + extendCount) 份
+                // 音符在第1份中心，增时线在后续份中心
+                const totalSlots = 1 + n.durationExtendCount
+                const slotWidth = assignedWidth / totalSlots
+
                 // 音符中心位置 (相对于小节开始)
-                // 应该居中于分配的区域，还是靠左？
-                // 标准乐谱通常靠左，但为了整齐，我们居中
-                const relativeX = noteX + (assignedWidth / 2)
+                const relativeX = noteX + (slotWidth / 2)
                 const absoluteX = mStart + relativeX
+
+                // 计算增时线位置
+                const extendLines = []
+                for (let i = 0; i < n.durationExtendCount; i++) {
+                    // 相对音符中心的偏移量
+                    // slot index: 0(note), 1(dash1), 2(dash2)...
+                    // note is at center of slot 0
+                    // dash is at center of slot (i+1)
+                    // dx = center(slot_i+1) - center(slot_0)
+                    //    = ( (i+1)*w + w/2 ) - ( 0*w + w/2 )
+                    //    = (i+1) * w
+                    const dx = (i + 1) * slotWidth
+                    extendLines.push({
+                        dx,
+                        key: 'ext-' + i
+                    })
+                }
 
                 // 3.3 分配歌词
                 // 只有非 hiddenRest 且不是单纯的增时线符号（如果有的话）才分配歌词
@@ -352,7 +373,8 @@ const layoutLines = computed(() => {
                     ...n,
                     relativeX,
                     absoluteX,
-                    width: assignedWidth
+                    width: assignedWidth,
+                    extendLines // 新增：预计算的增时线坐标
                 }
 
                 noteX += assignedWidth
