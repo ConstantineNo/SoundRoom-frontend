@@ -148,6 +148,8 @@ const props = defineProps({
 const containerRef = ref(null)
 const svgWidth = ref(800)
 const rowHeight = 120
+const measureWidth = 200 // 固定小节宽度
+const measuresPerLine = 4 // 每行显示的小节数（可根据屏幕宽度动态调整）
 
 // Helpers
 const header = computed(() => props.score.header)
@@ -164,43 +166,203 @@ const getNoteText = (note) => {
     return note.degree
 }
 
+/**
+ * 计算音符的逻辑时值（以四分音符为1）
+ */
+const calculateNoteDuration = (note) => {
+    // 基础时值：四分音符 = 1
+    let baseDuration = 1
+
+    // 减时线：每个 / 让时值减半
+    if (note.durationReduceCount > 0) {
+        baseDuration = baseDuration / Math.pow(2, note.durationReduceCount)
+    }
+
+    // 增时线：每个 - 让时值加倍
+    if (note.durationExtendCount > 0) {
+        baseDuration = baseDuration * Math.pow(2, note.durationExtendCount)
+    }
+
+    // 附点：增加原时值的一半
+    if (note.dots > 0) {
+        // 一个附点 = 1.5倍，两个附点 = 1.75倍
+        const dotMultiplier = note.dots === 1 ? 1.5 : 1.75
+        baseDuration = baseDuration * dotMultiplier
+    }
+
+    return baseDuration
+}
+
 // Layout Calculation
 const layoutLines = computed(() => {
-    const lines = []
-    let currentY = 50 // Start padding
-    
+    // 1. 扁平化所有小节
+    const allMeasures = []
     props.score.lines.forEach(rawLine => {
-        // Calculate Measure Widths
+        allMeasures.push(...rawLine.measures)
+    })
+
+    // 2. 重新分行
+    const lines = []
+    let currentLineMeasures = []
+    let currentMeasureCount = 0
+
+    // 计算总的小节数和行数
+    // 根据屏幕宽度和 measureWidth 计算每行放多少个
+    // 这里暂时使用固定的 measureWidth
+
+    // 我们还需要处理歌词分配：
+    // 因为原始数据结构中，lyrics 是按行（rawLine）存储的，
+    // 我们需要将歌词也扁平化，然后重新分配给新的 measure 结构
+
+    // 扁平化歌词：只处理第一行歌词作为示例
+    // 这里简化处理：我们假设每个音符都有对应的歌词（除了增时线延续）
+    // 为了更精确的歌词对齐，我们需要遍历所有 rawLine，收集所有歌词字符
+
+    let allLyricsChars = []
+    props.score.lines.forEach(rawLine => {
+        if (rawLine.lyrics && rawLine.lyrics.length > 0) {
+            const lyricLine = rawLine.lyrics[0]
+            if (lyricLine) {
+                // 解析歌词字符串
+                const text = lyricLine.join(' ')
+                let i = 0
+                while (i < text.length) {
+                    const char = text[i]
+                    // 跳过空格
+                    if (char === ' ') { i++; continue }
+
+                    // 特殊标记处理
+                    if (char === '@') {
+                        allLyricsChars.push({ type: 'skip' })
+                        i++
+                        continue
+                    }
+
+                    // 标点处理
+                    if (/[，。！？；：、“”…—·,\.!?;:"'\-]/.test(char)) {
+                         // 标点不对应音符，但我们需要知道它应该跟在前一个字符后面
+                         // 或者我们暂时忽略标点占位，只作为前一个字符的后缀
+                         if (allLyricsChars.length > 0) {
+                             const last = allLyricsChars[allLyricsChars.length - 1]
+                             if (last.type === 'char') {
+                                 last.text += char
+                             }
+                         }
+                         i++
+                         continue
+                    }
+
+                    // ~ 连接符
+                    if (text[i+1] === '~' && i+2 < text.length) {
+                         const combined = char + text[i+2]
+                         allLyricsChars.push({ type: 'char', text: combined })
+                         i += 3
+                         continue
+                    }
+
+                    // 普通字符
+                    allLyricsChars.push({ type: 'char', text: char })
+                    i++
+                }
+            }
+        }
+    })
+
+    let lyricIndex = 0
+
+    for (let i = 0; i < allMeasures.length; i++) {
+        currentLineMeasures.push(allMeasures[i])
+        currentMeasureCount++
+
+        if (currentMeasureCount >= measuresPerLine || i === allMeasures.length - 1) {
+            lines.push({
+                measures: currentLineMeasures,
+                // 我们稍后在 layout 阶段计算具体的歌词位置
+                // 这里只存储 measure 引用
+            })
+            currentLineMeasures = []
+            currentMeasureCount = 0
+        }
+    }
+
+    // 3. 计算每个小节内的布局
+    let currentY = 50 // Start padding
+
+    const computedLines = lines.map(lineObj => {
         let currentX = 20
-        const measures = rawLine.measures.map(m => {
+        const computedLyrics = []
+
+        const computedMeasures = lineObj.measures.map(m => {
             const mStart = currentX
-            
-            // Notes
-            const notes = m.notes.map(n => {
-                // Feature 4: Compact within beat, spacious between beats
-                // If reduce count > 0 (sub-beat), use smaller width (compact)
-                const baseWidth = (n.durationReduceCount > 0) ? 25 : 45
-                const width = baseWidth + (n.durationExtendCount * 15)
-                
-                const relativeX = (currentX - mStart) + (width / 2) // center relative to measure start
-                const absoluteX = currentX + (width / 2) // absolute center in line
-                
+            const mWidth = measureWidth
+
+            // 3.1 计算小节内所有音符的时值
+            // 注意：要正确处理连音（tuplet）
+            // 暂时简化：不考虑 tuplet 的特殊时值压缩，只按基本比例分配
+            // TODO: 实现三连音逻辑（总时值 = 2拍，音符数=3，每个音符 = 2/3拍）
+
+            const noteDurations = m.notes.map(n => {
+                // 如果是增时线，它的时值要加到前一个音符上吗？
+                // 番茄简谱中，1 - 是两个独立的 token： Note(1) 和 DurationExtend(-)
+                // 我们的 parser 已经把 DurationExtend 计数到了 Note 上
+                // Note 1 (extend=1) -> 时值 = 2拍
+                // 所以我们只需要处理 Note 对象即可
+                return calculateNoteDuration(n)
+            })
+
+            const totalDuration = noteDurations.reduce((a, b) => a + b, 0)
+
+            // 如果小节是空的或总时值为0（如只有小节线），分配默认宽度？
+            // 通常不会发生，除非只有隐形休止符
+            const safeTotalDuration = totalDuration || 1 // 避免除以0
+
+            // 3.2 分配音符位置
+            let noteX = 0
+            const notes = m.notes.map((n, idx) => {
+                const duration = noteDurations[idx]
+                const percent = duration / safeTotalDuration
+
+                // 音符占用的宽度
+                const assignedWidth = mWidth * percent
+
+                // 音符中心位置 (相对于小节开始)
+                // 应该居中于分配的区域，还是靠左？
+                // 标准乐谱通常靠左，但为了整齐，我们居中
+                const relativeX = noteX + (assignedWidth / 2)
+                const absoluteX = mStart + relativeX
+
+                // 3.3 分配歌词
+                // 只有非 hiddenRest 且不是单纯的增时线符号（如果有的话）才分配歌词
+                // 我们在 parser 里把增时线合并到了 note.durationExtendCount
+                // 所以每个 note 都是一个发音实体（或休止符）
+                if (n.type !== 'hiddenRest' && lyricIndex < allLyricsChars.length) {
+                     const lyricItem = allLyricsChars[lyricIndex]
+                     if (lyricItem.type === 'char') {
+                         computedLyrics.push({
+                             text: lyricItem.text,
+                             x: absoluteX
+                         })
+                     }
+                     // 无论是 char 还是 skip，都消耗一个音符位
+                     lyricIndex++
+                }
+
+                // 准备返回的对象
                 const noteObj = {
                     ...n,
                     relativeX,
                     absoluteX,
-                    width
+                    width: assignedWidth
                 }
-                // Check if next note is sub-beat? 
-                // Simple spacing: Just add width.
-                currentX += width
+
+                noteX += assignedWidth
                 return noteObj
             })
-            
-            // Padding for bar line
-            currentX += 15
 
-            // Beaming Logic (Merge Underlines)
+            currentX += mWidth
+
+            // 3.4 重新计算 Beam (减时线)
+            // 逻辑与之前类似，但坐标已更新
             const beams = []
             const maxReduce = Math.max(0, ...notes.map(n => n.durationReduceCount || 0))
 
@@ -211,7 +373,6 @@ const layoutLines = computed(() => {
                         if (startIdx === -1) startIdx = i
                     } else {
                         if (startIdx !== -1) {
-                            // End sequence
                             beams.push({
                                 x1: notes[startIdx].relativeX - 8,
                                 x2: notes[i-1].relativeX + 8,
@@ -230,45 +391,29 @@ const layoutLines = computed(() => {
                 }
             }
 
-            // Slur Logic (连音线)
+            // 3.5 重新计算 Slur (连音线)
             const slurs = []
-            let slurStack = [] // 支持嵌套连音线
+            let slurStack = []
 
             notes.forEach((note, i) => {
-                // 处理连音线起点
                 if (note.slurStarts > 0) {
                     for (let s = 0; s < note.slurStarts; s++) {
-                        slurStack.push({
-                            startIdx: i,
-                            level: slurStack.length // 嵌套层级
-                        })
+                        slurStack.push({ startIdx: i, level: slurStack.length })
                     }
                 }
-
-                // 处理连音线终点
                 if (note.slurEnds > 0) {
                     for (let s = 0; s < note.slurEnds; s++) {
                         if (slurStack.length > 0) {
                             const slurInfo = slurStack.pop()
                             const startNote = notes[slurInfo.startIdx]
                             const endNote = note
-
-                            // 计算连音线的贝塞尔曲线路径
                             const x1 = startNote.relativeX
                             const x2 = endNote.relativeX
-                            const y = 30 - 15 - (slurInfo.level * 8) // 音符上方，嵌套时逐层上移
-
-                            // 控制点高度（弧度）
+                            const y = 30 - 15 - (slurInfo.level * 8)
                             const distance = x2 - x1
                             const controlHeight = Math.min(distance / 4, 15)
-
-                            // 贝塞尔曲线：起点 -> 控制点 -> 终点
                             const path = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y - controlHeight} ${x2} ${y}`
-
-                            slurs.push({
-                                path,
-                                level: slurInfo.level
-                            })
+                            slurs.push({ path, level: slurInfo.level })
                         }
                     }
                 }
@@ -276,100 +421,25 @@ const layoutLines = computed(() => {
 
             return {
                 ...m,
-                x: mStart, // absolute start of measure
-                width: currentX - mStart, // pixel width
+                x: mStart,
+                width: mWidth,
                 notes,
                 beams,
                 slurs
             }
         })
-        
-        // Lyrics layout
-        const computedLyrics = []
-        if (rawLine.lyrics && rawLine.lyrics.length > 0) {
-            // Flatten notes from all measures in this line (只包含实际发音的音符，不包括增时线延续的音符)
-            const allNotes = measures.flatMap(m => m.notes)
 
-            // 过滤出需要对应歌词的音符：休止符和第一个音符需要歌词，增时线延续的音符不需要
-            const notesForLyrics = []
-            allNotes.forEach((note, idx) => {
-                // 如果前一个音符有增时线，当前音符是延续，不需要新歌词
-                // 但我们目前没有这个信息，所以基于音符类型判断
-                // 根据番茄简谱规范：增时线 - 不需要对应歌词
-                // 这里我们假设每个独立的音符都需要歌词（除非是隐藏休止符）
-                if (note.type !== 'hiddenRest') {
-                    notesForLyrics.push(note)
-                }
-            })
-
-            // 处理第一行歌词（支持多行歌词）
-            const lyricLine = rawLine.lyrics[0]
-            if (lyricLine && lyricLine.length > 0) {
-                // 将歌词字符串数组连接成一个字符串
-                const lyricText = lyricLine.join(' ')
-
-                // 处理番茄简谱歌词规则
-                let noteIndex = 0
-                let charIndex = 0
-
-                while (charIndex < lyricText.length && noteIndex < notesForLyrics.length) {
-                    const char = lyricText[charIndex]
-                    const note = notesForLyrics[noteIndex]
-
-                    // 跳过空格
-                    if (char === ' ') {
-                        charIndex++
-                        continue
-                    }
-
-                    // @ 跳过一个音符
-                    if (char === '@') {
-                        noteIndex++
-                        charIndex++
-                        continue
-                    }
-
-                    // 优化：将所有标点符号合并到一个正则中
-                    // 包含中文标点：，。！？；：、“”…—·
-                    // 包含英文标点：, . ! ? ; : " ' -
-                    if (/[，。！？；：、“”…—·,\.!?;:"'\-]/.test(char)) {
-                        charIndex++
-                        continue
-                    }
-
-                    // 处理 ~ 连接符（两个字对应一个音符）
-                    if (lyricText[charIndex + 1] === '~' && charIndex + 2 < lyricText.length) {
-                        const combinedText = char + lyricText[charIndex + 2]
-                        computedLyrics.push({
-                            text: combinedText,
-                            x: note.absoluteX
-                        })
-                        noteIndex++
-                        charIndex += 3 // 跳过 "字~字"
-                        continue
-                    }
-
-                    // 普通字符对应一个音符
-                    computedLyrics.push({
-                        text: char,
-                        x: note.absoluteX
-                    })
-                    noteIndex++
-                    charIndex++
-                }
-            }
-        }
-
-        lines.push({
-            measures,
-            y: currentY,
-            computedLyrics
-        })
-        
+        const lineY = currentY
         currentY += rowHeight
+
+        return {
+            measures: computedMeasures,
+            y: lineY,
+            computedLyrics
+        }
     })
-    
-    return lines
+
+    return computedLines
 })
 
 const totalHeight = computed(() => {
