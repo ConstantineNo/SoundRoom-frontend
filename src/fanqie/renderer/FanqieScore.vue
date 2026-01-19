@@ -109,9 +109,14 @@
 
             <!-- Beams (Underlines) -->
             <g v-for="(beam, bIdx) in measure.beams" :key="'b'+bIdx">
-                <line :x1="beam.x1" :y1="30 + 12 + (beam.level-1)*5" 
-                      :x2="beam.x2" :y2="30 + 12 + (beam.level-1)*5" 
+                <line :x1="beam.x1" :y1="30 + 12 + (beam.level-1)*5"
+                      :x2="beam.x2" :y2="30 + 12 + (beam.level-1)*5"
                       class="underline" />
+            </g>
+
+            <!-- Slurs (连音线) -->
+            <g v-for="(slur, sIdx) in measure.slurs" :key="'s'+sIdx">
+                <path :d="slur.path" class="slur-line" fill="none" />
             </g>
           </g>
           
@@ -196,7 +201,7 @@ const layoutLines = computed(() => {
             // Beaming Logic (Merge Underlines)
             const beams = []
             const maxReduce = Math.max(0, ...notes.map(n => n.durationReduceCount || 0))
-            
+
             for (let level = 1; level <= maxReduce; level++) {
                 let startIdx = -1
                 for (let i = 0; i < notes.length; i++) {
@@ -222,13 +227,58 @@ const layoutLines = computed(() => {
                     })
                 }
             }
-            
+
+            // Slur Logic (连音线)
+            const slurs = []
+            let slurStack = [] // 支持嵌套连音线
+
+            notes.forEach((note, i) => {
+                // 处理连音线起点
+                if (note.slurStarts > 0) {
+                    for (let s = 0; s < note.slurStarts; s++) {
+                        slurStack.push({
+                            startIdx: i,
+                            level: slurStack.length // 嵌套层级
+                        })
+                    }
+                }
+
+                // 处理连音线终点
+                if (note.slurEnds > 0) {
+                    for (let s = 0; s < note.slurEnds; s++) {
+                        if (slurStack.length > 0) {
+                            const slurInfo = slurStack.pop()
+                            const startNote = notes[slurInfo.startIdx]
+                            const endNote = note
+
+                            // 计算连音线的贝塞尔曲线路径
+                            const x1 = startNote.relativeX
+                            const x2 = endNote.relativeX
+                            const y = 30 - 15 - (slurInfo.level * 8) // 音符上方，嵌套时逐层上移
+
+                            // 控制点高度（弧度）
+                            const distance = x2 - x1
+                            const controlHeight = Math.min(distance / 4, 15)
+
+                            // 贝塞尔曲线：起点 -> 控制点 -> 终点
+                            const path = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y - controlHeight} ${x2} ${y}`
+
+                            slurs.push({
+                                path,
+                                level: slurInfo.level
+                            })
+                        }
+                    }
+                }
+            })
+
             return {
                 ...m,
                 x: mStart, // absolute start of measure
                 width: currentX - mStart, // pixel width
                 notes,
-                beams
+                beams,
+                slurs
             }
         })
         
@@ -372,6 +422,12 @@ const totalHeight = computed(() => {
 .underline {
   stroke: black;
   stroke-width: 1.5;
+}
+
+.slur-line {
+  stroke: black;
+  stroke-width: 1.5;
+  fill: none;
 }
 
 .ending-line {
