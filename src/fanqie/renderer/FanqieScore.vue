@@ -296,88 +296,78 @@ const layoutLines = computed(() => {
             const mStart = currentX
             const mWidth = measureWidth
 
-            // 3.1 计算小节内所有音符的时值
-            // 注意：要正确处理连音（tuplet）
-            // 暂时简化：不考虑 tuplet 的特殊时值压缩，只按基本比例分配
-            // TODO: 实现三连音逻辑（总时值 = 2拍，音符数=3，每个音符 = 2/3拍）
+            // 3.1 计算小节内所有音符的时值 & 确定每小节拍数
+            // 获取每小节拍数 (Numerator), 默认为 4
+            let beatsPerBar = 4
+            if (header.value.meters && header.value.meters.length > 0) {
+                beatsPerBar = header.value.meters[0].numerator
+            }
 
-            const noteDurations = m.notes.map(n => {
-                // 如果是增时线，它的时值要加到前一个音符上吗？
-                // 番茄简谱中，1 - 是两个独立的 token： Note(1) 和 DurationExtend(-)
-                // 我们的 parser 已经把 DurationExtend 计数到了 Note 上
-                // Note 1 (extend=1) -> 时值 = 2拍
-                // 所以我们只需要处理 Note 对象即可
-                return calculateNoteDuration(n)
-            })
+            // 计算布局参数
+            const paddingStart = mWidth * 0.1
+            // const paddingEnd = mWidth * 0.1 // 隐式保留
+            const contentWidth = mWidth * 0.8
+            const beatWidth = contentWidth / beatsPerBar
 
-            const totalDuration = noteDurations.reduce((a, b) => a + b, 0)
-
-            // 如果小节是空的或总时值为0（如只有小节线），分配默认宽度？
-            // 通常不会发生，除非只有隐形休止符
-            const safeTotalDuration = totalDuration || 1 // 避免除以0
+            const noteDurations = m.notes.map(n => calculateNoteDuration(n))
 
             // 3.2 分配音符位置
-            let noteX = 0
+            let currentBeatTime = 0 // 当前小节内的时间指针（单位：拍）
+
             const notes = m.notes.map((n, idx) => {
-                const duration = noteDurations[idx]
-                const percent = duration / safeTotalDuration
+                const totalDuration = noteDurations[idx]
 
-                // 音符占用的宽度
-                const assignedWidth = mWidth * percent
+                // 计算基础时值（不含增时线）
+                let baseDuration = totalDuration
+                if (n.durationExtendCount > 0) {
+                    baseDuration = totalDuration - n.durationExtendCount
+                }
 
-                // 计算内部布局：音符本体 + 增时线
-                // 将分配的宽度分为 (1 + extendCount) 份
-                // 音符在第1份中心，增时线在后续份中心
-                const totalSlots = 1 + n.durationExtendCount
-                const slotWidth = assignedWidth / totalSlots
-
-                // 音符中心位置 (相对于小节开始)
-                const relativeX = noteX + (slotWidth / 2)
+                // 1. 计算音符本体位置
+                // 策略：音符居中于它所占据的时间段
+                // X = Padding + (StartBeat + Duration/2) * BeatWidth
+                const noteCenterBeat = currentBeatTime + (baseDuration / 2)
+                const relativeX = paddingStart + (noteCenterBeat * beatWidth)
                 const absoluteX = mStart + relativeX
 
-                // 计算增时线位置
+                // 2. 计算增时线位置
+                // 策略：增时线 - 通常占据完整的1拍
+                // 它们应该位于后续整数拍的中心
+                // 比如 1 - : 1在 0.5, - 在 1.5
                 const extendLines = []
                 for (let i = 0; i < n.durationExtendCount; i++) {
-                    // 相对音符中心的偏移量
-                    // slot index: 0(note), 1(dash1), 2(dash2)...
-                    // note is at center of slot 0
-                    // dash is at center of slot (i+1)
-                    // dx = center(slot_i+1) - center(slot_0)
-                    //    = ( (i+1)*w + w/2 ) - ( 0*w + w/2 )
-                    //    = (i+1) * w
-                    const dx = (i + 1) * slotWidth
+                    // 增时线起始时间 = 当前音符开始 + 基础时值 + i
+                    // 比如 1(1拍) - - :
+                    // Dash 0: time = 0 + 1 + 0 = 1. Center = 1.5
+                    // Dash 1: time = 0 + 1 + 1 = 2. Center = 2.5
+                    const dashStartBeat = currentBeatTime + baseDuration + i
+                    const dashCenterBeat = dashStartBeat + 0.5
+
+                    const dashRelativeX = paddingStart + (dashCenterBeat * beatWidth)
+
+                    // 计算相对于音符本体的 dx
+                    const dx = dashRelativeX - relativeX
+
                     extendLines.push({
                         dx,
                         key: 'ext-' + i
                     })
                 }
 
-                // 3.3 分配歌词
-                // 只有非 hiddenRest 且不是单纯的增时线符号（如果有的话）才分配歌词
-                // 我们在 parser 里把增时线合并到了 note.durationExtendCount
-                // 所以每个 note 都是一个发音实体（或休止符）
-                if (n.type !== 'hiddenRest' && lyricIndex < allLyricsChars.length) {
-                     const lyricItem = allLyricsChars[lyricIndex]
-                     if (lyricItem.type === 'char') {
-                         computedLyrics.push({
-                             text: lyricItem.text,
-                             x: absoluteX
-                         })
-                     }
-                     // 无论是 char 还是 skip，都消耗一个音符位
-                     lyricIndex++
-                }
+                // 更新时间指针
+                currentBeatTime += totalDuration
 
                 // 准备返回的对象
+                // width 属性目前主要用于 debug 或 barline 定位，
+                // 在新逻辑下，barline 应该画在 measureWidth 处
                 const noteObj = {
                     ...n,
                     relativeX,
                     absoluteX,
-                    width: assignedWidth,
-                    extendLines // 新增：预计算的增时线坐标
+                    width: mWidth, // 占位，实际不用
+                    extendLines
                 }
 
-                noteX += assignedWidth
                 return noteObj
             })
 
