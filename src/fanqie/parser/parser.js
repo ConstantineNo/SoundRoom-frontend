@@ -506,6 +506,12 @@ export class FanqieParser {
 
         // We need to attach this to the *previous* melody line.
         if (this.score.lines.length === 0) {
+            this.warnings.push({
+                message: '歌词行 (C:) 必须位于曲谱行 (Q:) 之后，该行歌词将被忽略。',
+                line: this.peek().line,
+                column: this.peek().column,
+                context: this.peek().value
+            })
             this.advance()
             return
         }

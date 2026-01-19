@@ -16,9 +16,12 @@
           <span v-if="parseResult.errors.length === 0" class="success">解析成功</span>
           <span v-else class="error">包含 {{ parseResult.errors.length }} 个错误</span>
         </div>
-        <div class="error-list" v-if="parseResult && parseResult.errors.length > 0">
-           <div v-for="(err, i) in parseResult.errors" :key="i" class="error-item">
-             Line {{ err.line }}: {{ err.message }}
+        <div class="error-list" v-if="parseResult && (parseResult.errors.length > 0 || parseResult.warnings.length > 0)">
+           <div v-for="(err, i) in parseResult.errors" :key="'e'+i" class="error-item error">
+             Error Line {{ err.line }}: {{ err.message }}
+           </div>
+           <div v-for="(warn, i) in parseResult.warnings" :key="'w'+i" class="error-item warning">
+             Warning Line {{ warn.line }}: {{ warn.message }}
            </div>
         </div>
       </div>
@@ -133,10 +136,17 @@ onMounted(() => {
 }
 
 .editor-pane {
-  width: 40%;
+  width: 35%;
   border-right: 1px solid #ddd;
   display: flex;
   flex-direction: column;
+}
+
+#hidden-abc-container {
+  display: none !important;
+  height: 0;
+  width: 0;
+  overflow: hidden;
 }
 
 .code-editor {
@@ -156,6 +166,7 @@ onMounted(() => {
 }
 .success { color: green; }
 .error { color: red; }
+.warning { color: orange; }
 
 .error-list {
     max-height: 100px;

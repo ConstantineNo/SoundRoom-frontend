@@ -184,11 +184,13 @@ const layoutLines = computed(() => {
         // Naive 1-to-1 mapping to notes
         const computedLyrics = []
         if (rawLine.lyrics && rawLine.lyrics.length > 0) {
-            const words = rawLine.lyrics[0] // take first line
-            let noteIndex = 0
-            
             // Flatten notes from all measures in this line
             const allNotes = measures.flatMap(m => m.notes)
+            
+            // Support multiple lyric lines? Start with just the first row for now
+            // Filter out empty strings that might come from splitting multiple spaces
+            const words = rawLine.lyrics[0].filter(w => w.trim() !== '') 
+            let noteIndex = 0
             
             words.forEach((w, i) => {
                 if (noteIndex < allNotes.length) {
@@ -197,8 +199,11 @@ const layoutLines = computed(() => {
                         x: allNotes[noteIndex].x // align with note center
                     })
                     noteIndex++
-                    // Skip extended notes? Fanqie spec says - extends lyric.
-                    // For now simple 1-to-1
+                    // Fanqie spec: 
+                    // - If word is a hyphen '-', it might mean skipping a note or extending?
+                    // - Standard usually: one word/syllable per note.
+                    // - If note is a tie or slur, logic might differ.
+                    // - Assuming 1-to-1 for basic implementation.
                 }
             })
         }
