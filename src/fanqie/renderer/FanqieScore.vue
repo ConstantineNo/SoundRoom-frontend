@@ -145,10 +145,11 @@ const props = defineProps({
 })
 
 const containerRef = ref(null)
-const svgWidth = ref(800)
+const svgWidth = ref(860) // 增加宽度以容纳4个小节 + 边距
 const rowHeight = 120
 const measureWidth = 200 // 固定小节宽度
 const measuresPerLine = 4 // 每行显示的小节数（可根据屏幕宽度动态调整）
+const lineStartPadding = 30 // 每行起始的左侧padding，防止小节线被遮挡
 
 // Helpers
 const header = computed(() => props.score.header)
@@ -190,7 +191,57 @@ const calculateNoteDuration = (note) => {
         duration = duration * dotMultiplier
     }
 
+    // 三连音处理：如果是三连音，时值需要特殊计算
+    // 三连音通常是3个音符占2拍，每个音符 = 2/3 拍
+    // 但我们需要在外层检测三连音组，这里暂时保持原时值
+    // 实际压缩会在布局阶段处理
+
     return duration
+}
+
+/**
+ * 检测并处理三连音组
+ * 返回调整后的时值数组
+ */
+const adjustTupletDurations = (notes, durations) => {
+    const adjusted = [...durations]
+
+    // 查找三连音起始标记
+    for (let i = 0; i < notes.length; i++) {
+        if (notes[i].tupletStart) {
+            // 找到三连音组的结束位置（下一个有 slurEnds 的音符）
+            let endIdx = i
+            let tupletCount = 1
+
+            for (let j = i + 1; j < notes.length; j++) {
+                if (notes[j].slurEnds > 0) {
+                    endIdx = j
+                    tupletCount = j - i + 1
+                    break
+                }
+            }
+
+            // 计算三连音组的总原始时值
+            let totalOriginalDuration = 0
+            for (let j = i; j <= endIdx; j++) {
+                totalOriginalDuration += durations[j]
+            }
+
+            // 三连音的目标总时值 = 原始时值的 2/3
+            // 例如：3个八分音符（各0.5拍）= 1.5拍，压缩为 1拍
+            const targetTotalDuration = totalOriginalDuration * (2 / 3)
+
+            // 按比例调整每个音符
+            for (let j = i; j <= endIdx; j++) {
+                adjusted[j] = (durations[j] / totalOriginalDuration) * targetTotalDuration
+            }
+
+            // 跳过已处理的三连音组
+            i = endIdx
+        }
+    }
+
+    return adjusted
 }
 
 // Layout Calculation
@@ -289,7 +340,7 @@ const layoutLines = computed(() => {
     let currentY = 50 // Start padding
 
     const computedLines = lines.map(lineObj => {
-        let currentX = 20
+        let currentX = lineStartPadding // 使用左侧padding代替固定值20
         const computedLyrics = []
 
         const computedMeasures = lineObj.measures.map(m => {
@@ -311,11 +362,20 @@ const layoutLines = computed(() => {
 
             const noteDurations = m.notes.map(n => calculateNoteDuration(n))
 
+            // 处理三连音：调整时值
+            const adjustedDurations = adjustTupletDurations(m.notes, noteDurations)
+
             // 3.2 分配音符位置
             let currentBeatTime = 0 // 当前小节内的时间指针（单位：拍）
 
             const notes = m.notes.map((n, idx) => {
-                const totalDuration = noteDurations[idx]
+                const totalDuration = adjustedDurations[idx]
+
+                // 检测三连音（tuplet）
+                // 如果音符有 tupletStart 标记，需要特殊处理时值
+                // 三连音的逻辑：找到连续的三连音组，总时值通常是2拍，分给3个音符
+                // 简化处理：如果有 tupletStart，将该音符及后续音符的时值压缩
+                // 但这需要在外层循环处理，这里先标记
 
                 // 计算基础时值（不含增时线）
                 let baseDuration = totalDuration
@@ -354,12 +414,23 @@ const layoutLines = computed(() => {
                     })
                 }
 
+                // 3. 分配歌词
+                if (n.type !== 'hiddenRest' && lyricIndex < allLyricsChars.length) {
+                    const lyricItem = allLyricsChars[lyricIndex]
+                    if (lyricItem.type === 'char') {
+                        computedLyrics.push({
+                            text: lyricItem.text,
+                            x: absoluteX
+                        })
+                    }
+                    // 无论是 char 还是 skip，都消耗一个音符位
+                    lyricIndex++
+                }
+
                 // 更新时间指针
                 currentBeatTime += totalDuration
 
                 // 准备返回的对象
-                // width 属性目前主要用于 debug 或 barline 定位，
-                // 在新逻辑下，barline 应该画在 measureWidth 处
                 const noteObj = {
                     ...n,
                     relativeX,
