@@ -377,6 +377,11 @@ export class FanqieParser {
         while (!this.isAtEnd()) {
             const next = this.peek()
 
+            if (next.type === 'WHITESPACE') {
+                this.advance()
+                continue
+            }
+
             if (next.type === 'OCTAVE_UP') {
                 note.octave++
                 this.advance()
