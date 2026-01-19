@@ -28,23 +28,41 @@
             <!-- Strategy: Render RIGHT bar of each measure. Left bar only for first measure if needed? -->
             <!-- Fanqie AST barType is at the END of the notes. -->
             
-            <!-- Bar Line -->
-            <line v-if="measure.barType !== 'hidden_no_space'" 
+            <!-- Bar Line Rendering -->
+            
+            <!-- 1. Standard Bar Lines (Right side of measure) -->
+            <line v-if="measure.barType === 'bar' || measure.barType === 'final'" 
                   :x1="measure.width" y1="10" :x2="measure.width" y2="50" 
-                  class="bar-line" 
-                  :class="{ 'double': measure.barType === 'double', 'bold': measure.barType === 'final' }" />
+                  class="bar-line" :class="{ 'bold': measure.barType === 'final' }" />
             
-            <!-- Double Bar extras -->
-            <line v-if="measure.barType === 'double' || measure.barType === 'double_repeat'" 
-                  :x1="measure.width - 4" y1="10" :x2="measure.width - 4" y2="50" 
-                  class="bar-line" />
+            <!-- Double Bar -->
+            <g v-if="measure.barType === 'double'">
+                 <line :x1="measure.width - 4" y1="10" :x2="measure.width - 4" y2="50" class="bar-line" />
+                 <line :x1="measure.width" y1="10" :x2="measure.width" y2="50" class="bar-line" />
+            </g>
 
-            <!-- Repeat Dots -->
-            <circle v-if="['left_repeat', 'double_repeat'].includes(measure.barType)" :cx="4" :cy="20" r="2" />
-            <circle v-if="['left_repeat', 'double_repeat'].includes(measure.barType)" :cx="4" :cy="40" r="2" />
+            <!-- Left Repeat (Usually at Start of NEXT measure, but here we might render at end of empty measure) -->
+            <!-- Style: Thick | Thin | : (Dots right) -->
+            <!-- If we are rendering 'left_repeat' as an end bar type (from parser), we mimic standard notation: ||: -->
+            <!-- Actually Left Repeat is usually ||: -->
+            <g v-if="measure.barType === 'left_repeat'">
+                <line :x1="measure.width - 6" y1="10" :x2="measure.width - 6" y2="50" class="bar-line bold" />
+                <line :x1="measure.width - 2" y1="10" :x2="measure.width - 2" y2="50" class="bar-line" />
+                <circle :cx="measure.width + 3" :cy="24" r="2" />
+                <circle :cx="measure.width + 3" :cy="36" r="2" />
+            </g>
+
+            <!-- Right Repeat (:||) -->
+            <!-- Style: : | Thick -->
+            <g v-if="measure.barType === 'right_repeat' || measure.barType === 'double_repeat'">
+                <circle :cx="measure.width - 8" :cy="24" r="2" />
+                <circle :cx="measure.width - 8" :cy="36" r="2" />
+                <line :x1="measure.width - 4" y1="10" :x2="measure.width - 4" y2="50" class="bar-line" />
+                <line :x1="measure.width" y1="10" :x2="measure.width" y2="50" class="bar-line bold" />
+            </g>
             
-            <circle v-if="['right_repeat', 'double_repeat'].includes(measure.barType)" :cx="measure.width - 8" :cy="20" r="2" />
-            <circle v-if="['right_repeat', 'double_repeat'].includes(measure.barType)" :cx="measure.width - 8" :cy="40" r="2" />
+            <!-- Double Repeat (:||:) -->
+             <!-- Complex, combination of both? For now handle as right repeat or custom -->
 
             <!-- Ending Bracket -->
             <g v-if="measure.endingStart">
@@ -67,12 +85,12 @@
               </g>
 
               <!-- Low Octave dots (Below Underlines) -->
-              <!-- Y start = 12 + (reduceCount * 5) + 5 padding -->
+              <!-- Feature 2: Reduce distance. -->
+              <!-- Previous: 16 + (reduce * 5) + 4. Reduced to + 2 and tight loop -->
               <g v-if="note.octave < 0">
                  <circle v-for="i in Math.abs(note.octave)" :key="'l'+i" 
-                         :cy="16 + (note.durationReduceCount * 5) + 4" 
-                         :cx="0" :r="1.5" 
-                         :transform="`translate(0, ${(i-1)*5})`" />
+                         :cy="16 + (note.durationReduceCount * 5) + (i-1)*4" 
+                         :cx="0" :r="1.5" />
               </g>
 
               <!-- Dashes (Duration Extend) -->
@@ -152,9 +170,13 @@ const layoutLines = computed(() => {
             
             // Notes
             const notes = m.notes.map(n => {
-                const width = 30 + (n.durationExtendCount * 15)
-                const relativeX = (currentX - mStart) + 15 // relative to measure start
-                const absoluteX = currentX + 15 // absolute in line
+                // Feature 4: Compact within beat, spacious between beats
+                // If reduce count > 0 (sub-beat), use smaller width (compact)
+                const baseWidth = (n.durationReduceCount > 0) ? 25 : 45
+                const width = baseWidth + (n.durationExtendCount * 15)
+                
+                const relativeX = (currentX - mStart) + (width / 2) // center relative to measure start
+                const absoluteX = currentX + (width / 2) // absolute center in line
                 
                 const noteObj = {
                     ...n,
@@ -162,12 +184,14 @@ const layoutLines = computed(() => {
                     absoluteX,
                     width
                 }
+                // Check if next note is sub-beat? 
+                // Simple spacing: Just add width.
                 currentX += width
                 return noteObj
             })
             
             // Padding for bar line
-            currentX += 10
+            currentX += 15
 
             // Beaming Logic (Merge Underlines)
             const beams = []
@@ -278,38 +302,9 @@ const totalHeight = computed(() => {
     stroke-width: 3;
 }
 
-.note-text {
-  font-size: 20px;
-  font-weight: bold;
-  text-anchor: middle;
-  dominant-baseline: central;
-}
-
-.note-text.rest {
-    /* Bold like others */
-}
-
-.underline {
-  stroke: black;
-  stroke-width: 1.5;
-}
-
-.ending-line {
-    stroke: black;
-    stroke-width: 1;
-    fill: none;
-}
-
-.ending-label {
-    font-size: 10px;
-}
-
-.dash {
-    font-size: 20px;
-}
-
 .lyric-text {
     font-size: 14px;
+    font-family: "Microsoft YaHei", sans-serif;
     text-anchor: middle;
 }
 
