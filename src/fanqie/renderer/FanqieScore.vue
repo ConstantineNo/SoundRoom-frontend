@@ -119,6 +119,15 @@
             <g v-for="(slur, sIdx) in measure.slurs" :key="'s'+sIdx">
                 <path :d="slur.path" class="slur-line" fill="none" />
             </g>
+
+            <!-- Tuplets (三连音标记) -->
+            <g v-for="(tuplet, tIdx) in measure.tuplets" :key="'t'+tIdx">
+                <!-- 三连音弧线 -->
+                <path :d="`M ${tuplet.x1} 8 Q ${tuplet.x} 0 ${tuplet.x2} 8`"
+                      class="tuplet-bracket" fill="none" />
+                <!-- 三连音数字 -->
+                <text :x="tuplet.x" y="5" class="tuplet-number">{{ tuplet.count }}</text>
+            </g>
           </g>
           
           <!-- Lyrics Row -->
@@ -444,16 +453,43 @@ const layoutLines = computed(() => {
 
             currentX += mWidth
 
-            // 3.4 重新计算 Beam (减时线)
-            // 逻辑与之前类似，但坐标已更新
+            // 3.4 重新计算 Beam (减时线) - 按拍切分
+            // 八分音符及更短的音符应以拍为单位进行切分
             const beams = []
             const maxReduce = Math.max(0, ...notes.map(n => n.durationReduceCount || 0))
 
             for (let level = 1; level <= maxReduce; level++) {
                 let startIdx = -1
+                let currentBeat = 0
+
                 for (let i = 0; i < notes.length; i++) {
-                    if ((notes[i].durationReduceCount || 0) >= level) {
-                        if (startIdx === -1) startIdx = i
+                    const note = notes[i]
+                    const noteDuration = adjustedDurations[i]
+                    const noteStartBeat = currentBeat
+                    const noteEndBeat = currentBeat + noteDuration
+
+                    // 判断是否跨拍（音符起始和结束不在同一个整拍内）
+                    const startBeatFloor = Math.floor(noteStartBeat)
+                    const endBeatFloor = Math.floor(noteEndBeat - 0.001) // 减小误差
+
+                    const crossesBeat = startBeatFloor !== endBeatFloor && noteDuration < 1
+
+                    if ((note.durationReduceCount || 0) >= level) {
+                        if (startIdx === -1) {
+                            startIdx = i
+                        }
+                        // 检查是否需要在此处断开（跨拍或有beamBreakNext标记）
+                        if (note.beamBreakNext || (i < notes.length - 1 && crossesBeat)) {
+                            // 结束当前beam组
+                            if (startIdx !== -1 && startIdx <= i) {
+                                beams.push({
+                                    x1: notes[startIdx].relativeX - 8,
+                                    x2: notes[i].relativeX + 8,
+                                    level
+                                })
+                            }
+                            startIdx = -1
+                        }
                     } else {
                         if (startIdx !== -1) {
                             beams.push({
@@ -464,6 +500,8 @@ const layoutLines = computed(() => {
                             startIdx = -1
                         }
                     }
+
+                    currentBeat = noteEndBeat
                 }
                 if (startIdx !== -1) {
                     beams.push({
@@ -478,8 +516,34 @@ const layoutLines = computed(() => {
             const slurs = []
             let slurStack = []
 
+            // 3.6 检测并记录三连音组（用于渲染数字标记）
+            const tuplets = []
+
             notes.forEach((note, i) => {
-                if (note.slurStarts > 0) {
+                // 处理三连音起始
+                if (note.tupletStart) {
+                    // 找到三连音结束位置
+                    let endIdx = i
+                    for (let j = i + 1; j < notes.length; j++) {
+                        if (notes[j].slurEnds > 0) {
+                            endIdx = j
+                            break
+                        }
+                    }
+                    const tupletCount = endIdx - i + 1
+                    const startNote = notes[i]
+                    const endNote = notes[endIdx]
+                    const centerX = (startNote.relativeX + endNote.relativeX) / 2
+                    tuplets.push({
+                        x: centerX,
+                        count: tupletCount,
+                        x1: startNote.relativeX,
+                        x2: endNote.relativeX
+                    })
+                }
+
+                // 处理普通连音线（非三连音）
+                if (note.slurStarts > 0 && !note.tupletStart) {
                     for (let s = 0; s < note.slurStarts; s++) {
                         slurStack.push({ startIdx: i, level: slurStack.length })
                     }
@@ -508,7 +572,8 @@ const layoutLines = computed(() => {
                 width: mWidth,
                 notes,
                 beams,
-                slurs
+                slurs,
+                tuplets
             }
         })
 
@@ -583,6 +648,19 @@ const totalHeight = computed(() => {
   stroke: black;
   stroke-width: 1.5;
   fill: none;
+}
+
+.tuplet-bracket {
+  stroke: black;
+  stroke-width: 1;
+  fill: none;
+}
+
+.tuplet-number {
+  font-size: 12px;
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 .ending-line {

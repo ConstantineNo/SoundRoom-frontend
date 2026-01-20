@@ -353,20 +353,44 @@ export class FanqieParser {
     parseNote() {
         const token = this.peek()
 
+        // 首先检查是否有前置的连音线/多连音起始标记
+        // 番茄简谱中 ( 是下一个音符的前缀，而不是前一个音符的后缀
+        let pendingSlurStarts = 0
+        let pendingTupletStart = false
+
+        while (this.peek().type === 'SLUR_START' || this.peek().type === 'TUPLET_START' || this.peek().type === 'WHITESPACE') {
+            const prefixToken = this.peek()
+            if (prefixToken.type === 'WHITESPACE') {
+                this.advance()
+                continue
+            }
+            if (prefixToken.type === 'SLUR_START') {
+                pendingSlurStarts++
+                this.advance()
+            } else if (prefixToken.type === 'TUPLET_START') {
+                pendingTupletStart = true
+                this.advance()
+            }
+        }
+
+        // 重新获取当前token（可能已经消费了前缀）
+        const noteToken = this.peek()
+
         // Identify valid note starts
-        if (!['NOTE', 'REST', 'HIDDEN_REST', 'RHYTHM_NOTE'].includes(token.type)) {
+        if (!['NOTE', 'REST', 'HIDDEN_REST', 'RHYTHM_NOTE'].includes(noteToken.type)) {
             return null
         }
 
         const note = {
-            type: this.mapNoteType(token.type),
-            degree: token.type === 'NOTE' ? parseInt(token.value) : undefined,
+            type: this.mapNoteType(noteToken.type),
+            degree: noteToken.type === 'NOTE' ? parseInt(noteToken.value) : undefined,
             octave: 0,
             durationReduceCount: 0,
             durationExtendCount: 0,
             dots: 0,
-            slurStarts: 0,
+            slurStarts: pendingSlurStarts, // 使用前置收集的值
             slurEnds: 0,
+            tupletStart: pendingTupletStart, // 使用前置收集的值
             ornaments: [],
             graceNotes: []
         }
@@ -422,18 +446,8 @@ export class FanqieParser {
                 note.beamBreakNext = true
                 this.advance()
             }
-            else if (next.type === 'SLUR_START') {
-                note.slurStarts++
-                this.advance()
-            }
             else if (next.type === 'SLUR_END') {
                 note.slurEnds++
-                this.advance()
-            }
-            else if (next.type === 'TUPLET_START') {
-                note.tupletStart = true
-                note.slurStarts++ // Reuse slur for tuplet bracket usually? 
-                // Spec says "different is (y", let's keep separate flag
                 this.advance()
             }
             else if (next.type === 'GRACE_START') {
