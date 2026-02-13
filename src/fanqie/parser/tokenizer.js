@@ -156,6 +156,20 @@ export class FanqieTokenizer {
     }
 
     /**
+     * 获取最后一个非空白/非换行的token
+     * @returns {FanqieToken|null}
+     */
+    _lastNonWhitespaceToken() {
+        for (let i = this.tokens.length - 1; i >= 0; i--) {
+            const t = this.tokens[i]
+            if (t.type !== 'WHITESPACE' && t.type !== 'NEWLINE') {
+                return t
+            }
+        }
+        return null
+    }
+
+    /**
      * 对整个源码进行词法分析
      * @returns {FanqieToken[]}
      */
@@ -364,14 +378,54 @@ export class FanqieTokenizer {
             return
         }
 
-        // 倚音 [...]
+        // 方括号 [ 和 ] — 根据上下文区分倚音和跳房子
         if (ch === '[') {
-            const { notes, isAfter } = this.readGraceNotes()
-            if (isAfter) {
-                this.tokens.push(this.makeToken('AFTER_GRACE_START', notes))
+            // 判断上下文：如果前一个有效 token 是小节线类型，则为跳房子（ENDING_START）
+            // 否则为倚音（GRACE_START）
+            const prevToken = this._lastNonWhitespaceToken()
+            const isAfterBarLine = !prevToken ||
+                prevToken.type.startsWith('BAR') ||
+                prevToken.type === 'ENDING_END' ||
+                prevToken.type === 'MELODY_LINE'
+
+            if (isAfterBarLine) {
+                // 跳房子起始 [  可能有 + (高度调整) 和 / (开放结尾)
+                this.advance() // skip [
+                let heightOffset = 0
+                let openEnd = false
+
+                // 解析 + 号（高度调整）
+                while (this.peek() === '+') {
+                    heightOffset++
+                    this.advance()
+                }
+
+                // 解析 / 号（开放结尾，不封闭右侧）
+                if (this.peek() === '/') {
+                    openEnd = true
+                    this.advance()
+                }
+
+                const token = this.makeToken('ENDING_START', '[')
+                token.heightOffset = heightOffset
+                token.openEnd = openEnd
+                this.tokens.push(token)
             } else {
-                this.tokens.push(this.makeToken('GRACE_START', notes))
+                // 倚音
+                const { notes, isAfter } = this.readGraceNotes()
+                if (isAfter) {
+                    this.tokens.push(this.makeToken('AFTER_GRACE_START', notes))
+                } else {
+                    this.tokens.push(this.makeToken('GRACE_START', notes))
+                }
             }
+            return
+        }
+
+        // 跳房子结束 ]
+        if (ch === ']') {
+            this.tokens.push(this.makeToken('ENDING_END', ']'))
+            this.advance()
             return
         }
 
@@ -406,16 +460,22 @@ export class FanqieTokenizer {
             return
         }
 
-        // 右反复 :|
-        if (ch === ':' && this.peek(1) === '|') {
-            this.advance()
-            this.advance()
-            if (this.peek() === '|' && this.peek(1) === ':') {
+        // 右反复 :| 或 :] (右反复+跳房子结束)
+        if (ch === ':' && (this.peek(1) === '|' || this.peek(1) === ']')) {
+            if (this.peek(1) === '|') {
                 this.advance()
                 this.advance()
-                this.tokens.push(this.makeToken('BAR_DOUBLE_REPEAT', ':||:'))
+                if (this.peek() === '|' && this.peek(1) === ':') {
+                    this.advance()
+                    this.advance()
+                    this.tokens.push(this.makeToken('BAR_DOUBLE_REPEAT', ':||:'))
+                } else {
+                    this.tokens.push(this.makeToken('BAR_RIGHT_REPEAT', ':|'))
+                }
             } else {
-                this.tokens.push(this.makeToken('BAR_RIGHT_REPEAT', ':|'))
+                // :] — 只消耗 : 作为右反复，] 留给下次扫描作为 ENDING_END
+                this.advance()
+                this.tokens.push(this.makeToken('BAR_RIGHT_REPEAT', ':'))
             }
             return
         }

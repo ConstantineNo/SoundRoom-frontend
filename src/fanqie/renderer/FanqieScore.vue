@@ -55,12 +55,7 @@
                 <line :x1="measure.width" y1="10" :x2="measure.width" y2="50" class="bar-line bold" />
             </g>
 
-            <!-- Ending Bracket -->
-            <g v-if="measure.endingStart">
-               <line :x1="0" y1="5" :x2="measure.width" y2="5" class="ending-line" />
-               <line :x1="0" y1="5" :x2="0" y2="15" class="ending-line" />
-               <text v-if="measure.endingStart.label" x="5" y="15" class="ending-label">{{ measure.endingStart.label }}</text>
-            </g>
+
 
             <!-- Notes -->
             <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.relativeX}, 30)`">
@@ -122,6 +117,20 @@
             </g>
           </g>
           
+          <!-- Volta Brackets (跳房子) -->
+          <g v-for="(volta, vIdx) in line.voltaBrackets" :key="'v'+vIdx">
+            <g :transform="`translate(0, ${-5 - (volta.heightOffset * 8)})`">
+              <!-- 左侧竖线 -->
+              <line :x1="volta.startX" y1="5" :x2="volta.startX" y2="18" class="volta-line" />
+              <!-- 顶部横线 -->
+              <line :x1="volta.startX" y1="5" :x2="volta.endX" y2="5" class="volta-line" />
+              <!-- 右侧竖线（仅封闭时绘制） -->
+              <line v-if="volta.closed" :x1="volta.endX" y1="5" :x2="volta.endX" y2="18" class="volta-line" />
+              <!-- 标签文本 -->
+              <text v-if="volta.label" :x="volta.startX + 5" y="16" class="volta-label">{{ volta.label }}</text>
+            </g>
+          </g>
+
           <!-- Lyrics Row -->
           <g v-if="line.computedLyrics && line.computedLyrics.length" transform="translate(0, 70)">
              <text v-for="(word, wIdx) in line.computedLyrics" :key="wIdx" :x="word.x" y="0" class="lyric-text">
@@ -556,7 +565,19 @@ const layoutLines = computed(() => {
                             const endNote = note
                             const x1 = startNote.relativeX
                             const x2 = endNote.relativeX
-                            const y = 30 - 15 - (slurInfo.level * 8)
+
+                            // 计算连音线覆盖范围内最大的高音八度数，避免与高音点重叠
+                            let maxOctave = 0
+                            for (let k = slurInfo.startIdx; k <= i; k++) {
+                                if (notes[k].octave > maxOctave) {
+                                    maxOctave = notes[k].octave
+                                }
+                            }
+                            // 基础 y = 15 (距顶部), 每层连音线再上移 8px
+                            // 如果有高音点, 额外上移 (5px per octave dot level)
+                            const octaveOffset = maxOctave > 0 ? (maxOctave * 5 + 3) : 0
+                            const y = 30 - 15 - (slurInfo.level * 8) - octaveOffset
+
                             const distance = x2 - x1
                             const controlHeight = Math.min(distance / 4, 15)
                             const path = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y - controlHeight} ${x2} ${y}`
@@ -577,13 +598,47 @@ const layoutLines = computed(() => {
             }
         })
 
+        // 4. 计算跳房子（volta brackets）跨小节的范围
+        const voltaBrackets = []
+        let voltaStart = null
+
+        computedMeasures.forEach((m, mIdx) => {
+            if (m.endingStart) {
+                voltaStart = {
+                    startX: m.x,
+                    label: m.endingStart.label || '',
+                    heightOffset: m.endingStart.heightOffset || 0,
+                    openEnd: m.endingStart.openEnd || false
+                }
+            }
+            if (m.endingEnd && voltaStart) {
+                voltaBrackets.push({
+                    ...voltaStart,
+                    endX: m.x + m.width,
+                    closed: true
+                })
+                voltaStart = null
+            }
+        })
+        // 如果跳房子起始后没有找到结束，延伸到行尾
+        if (voltaStart) {
+            const lastMeasure = computedMeasures[computedMeasures.length - 1]
+            voltaBrackets.push({
+                ...voltaStart,
+                endX: lastMeasure.x + lastMeasure.width,
+                closed: !voltaStart.openEnd
+            })
+            voltaStart = null
+        }
+
         const lineY = currentY
         currentY += rowHeight
 
         return {
             measures: computedMeasures,
             y: lineY,
-            computedLyrics
+            computedLyrics,
+            voltaBrackets
         }
     })
 
@@ -669,14 +724,15 @@ const totalHeight = computed(() => {
   dominant-baseline: middle;
 }
 
-.ending-line {
+.volta-line {
     stroke: black;
-    stroke-width: 1;
+    stroke-width: 1.2;
     fill: none;
 }
 
-.ending-label {
-    font-size: 10px;
+.volta-label {
+    font-size: 12px;
+    font-weight: bold;
 }
 
 .dash {

@@ -289,20 +289,24 @@ export class FanqieParser {
                 }
             }
             else if (token.type === 'ENDING_START') {
-                // Skip for now, logic needs to attach to measure
-                this.advance()
-                // If start of ending, usually it applies to the measure ABOUT TO START
-                currentMeasure.endingStart = { type: 'start' }
-                // Check for Ending Label? (Requires tokenizer support or peek)
-                // Tokenizer treats [ as ENDING_START. 
-                // We might need to look for label (e.g. "1.")
+                const endingToken = this.advance()
+                // 跳房子起始标记，应用于当前小节（即将填充音符的小节）
+                const ending = {
+                    type: 'start',
+                    heightOffset: endingToken.heightOffset || 0,
+                    openEnd: endingToken.openEnd || false
+                }
 
-                // Simple hack: if next is number or text?
-                // For now, minimal support.
+                // 检查下一个 token 是否是 ANNOTATION（标签，如 "1." 或 "2."）
+                if (this.peek().type === 'ANNOTATION') {
+                    ending.label = this.advance().value
+                }
+
+                currentMeasure.endingStart = ending
             }
             else if (token.type === 'ENDING_END') {
                 this.advance()
-                currentMeasure.endingEnd = true;
+                currentMeasure.endingEnd = true
             }
             else if (token.type === 'WHITESPACE') {
                 this.advance()
