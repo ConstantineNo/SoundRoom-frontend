@@ -8,6 +8,7 @@
       <!-- Left: Text Editor -->
       <div class="editor-pane">
         <textarea 
+          ref="editorRef"
           v-model="sourceCode" 
           class="code-editor"
           spellcheck="false"
@@ -29,7 +30,7 @@
       <!-- Right: Preview -->
       <div class="preview-pane">
         <div class="preview-scroll">
-           <FanqieScore v-if="parseResult && parseResult.score" :score="parseResult.score" />
+           <FanqieScore v-if="parseResult && parseResult.score" :score="parseResult.score" @note-click="handleNoteClick" />
         </div>
         
         <!-- Audio Control -->
@@ -65,6 +66,7 @@ C: do re mi fa sol la si do woo
 const parseResult = ref(null)
 const abcString = ref('')
 const visualObjRef = ref(null)
+const editorRef = ref(null)
 
 // Audio Player integration
 const { initAudio } = useAbcPlayer(visualObjRef)
@@ -113,6 +115,39 @@ watch(sourceCode, () => {
 onMounted(() => {
     updateScore()
 })
+
+/**
+ * 点击简谱音符时，将编辑器光标定位到对应源码位置
+ */
+const handleNoteClick = ({ line, column }) => {
+  const textarea = editorRef.value
+  if (!textarea) return
+
+  const text = sourceCode.value
+  const lines = text.split('\n')
+
+  // 计算字符偏移量（line 和 column 都是 1-based）
+  let offset = 0
+  for (let i = 0; i < line - 1 && i < lines.length; i++) {
+    // +1 for the \n character (handle \r\n by checking original text)
+    offset += lines[i].length + 1
+  }
+  // tokenizer 的 column 是 0-based（makeToken: this.column - value.length）
+  offset += Math.max(0, column)
+
+  // 确保 offset 不超过文本长度
+  offset = Math.min(offset, text.length)
+
+  // 设置光标位置并聚焦
+  textarea.focus()
+  textarea.setSelectionRange(offset, offset)
+
+  // 滚动到光标可见位置
+  // 简单方法：使用 scrollTop 估算
+  const lineHeight = 20 // 大约行高
+  const targetScrollTop = (line - 1) * lineHeight - textarea.clientHeight / 2
+  textarea.scrollTop = Math.max(0, targetScrollTop)
+}
 
 </script>
 

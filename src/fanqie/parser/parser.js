@@ -390,7 +390,10 @@ export class FanqieParser {
             slurEnds: 0,
             tupletStart: pendingTupletStart, // 使用前置收集的值
             ornaments: [],
-            graceNotes: []
+            graceNotes: [],
+            // 源码位置信息，用于点击定位
+            sourceLine: noteToken.line,
+            sourceColumn: noteToken.column
         }
 
         this.advance() // Consume the base note

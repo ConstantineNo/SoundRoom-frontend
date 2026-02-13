@@ -65,8 +65,9 @@
             <!-- Notes -->
             <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.relativeX}, 30)`">
               
-              <!-- Pitch -->
-              <text class="note-text" :class="{ 'rest': note.type === 'rest' }">
+              <!-- Pitch (clickable) -->
+              <text class="note-text" :class="{ 'rest': note.type === 'rest', 'clickable': note.sourceLine != null }"
+                    @click="onNoteClick(note)">
                 {{ getNoteText(note) }}
               </text>
 
@@ -135,7 +136,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watchEffect, defineProps } from 'vue'
+import { computed, ref, watchEffect, defineProps, defineEmits } from 'vue'
 
 const props = defineProps({
   score: {
@@ -143,6 +144,14 @@ const props = defineProps({
      required: true
   }
 })
+
+const emit = defineEmits(['note-click'])
+
+const onNoteClick = (note) => {
+  if (note.sourceLine != null && note.sourceColumn != null) {
+    emit('note-click', { line: note.sourceLine, column: note.sourceColumn })
+  }
+}
 
 const containerRef = ref(null)
 const svgWidth = ref(860) // 增加宽度以容纳4个小节 + 边距
@@ -626,9 +635,15 @@ const totalHeight = computed(() => {
   dominant-baseline: central;
 }
 
-.note-text.rest {
-    /* Bold like others */
+.note-text.clickable {
+  cursor: pointer;
 }
+
+.note-text.clickable:hover {
+  fill: #1a73e8;
+}
+
+
 
 .underline {
   stroke: black;
