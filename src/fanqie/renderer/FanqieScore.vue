@@ -23,10 +23,15 @@
           <!-- Measures -->
           <g v-for="(measure, mIdx) in line.measures" :key="mIdx" :transform="`translate(${measure.x}, 0)`">
             
-            <!-- Bar Line (Start/End) -->
-            <!-- Usually render Left bar if it's start of line, else render Right bar of prev measure? -->
-            <!-- Strategy: Render RIGHT bar of each measure. Left bar only for first measure if needed? -->
-            <!-- Fanqie AST barType is at the END of the notes. -->
+            <!-- Left Repeat Bar Line at start of measure (|:) -->
+            <g v-if="measure.startBarType === 'left_repeat'">
+                <line x1="0" y1="10" x2="0" y2="50" class="bar-line bold" />
+                <line x1="4" y1="10" x2="4" y2="50" class="bar-line" />
+                <circle cx="9" cy="24" r="2" />
+                <circle cx="9" cy="36" r="2" />
+            </g>
+
+            <!-- Bar Line (End of measure) -->
             
             <!-- Bar Line Rendering -->
             
@@ -41,17 +46,6 @@
                  <line :x1="measure.width" y1="10" :x2="measure.width" y2="50" class="bar-line" />
             </g>
 
-            <!-- Left Repeat (Usually at Start of NEXT measure, but here we might render at end of empty measure) -->
-            <!-- Style: Thick | Thin | : (Dots right) -->
-            <!-- If we are rendering 'left_repeat' as an end bar type (from parser), we mimic standard notation: ||: -->
-            <!-- Actually Left Repeat is usually ||: -->
-            <g v-if="measure.barType === 'left_repeat'">
-                <line :x1="measure.width - 6" y1="10" :x2="measure.width - 6" y2="50" class="bar-line bold" />
-                <line :x1="measure.width - 2" y1="10" :x2="measure.width - 2" y2="50" class="bar-line" />
-                <circle :cx="measure.width + 3" :cy="24" r="2" />
-                <circle :cx="measure.width + 3" :cy="36" r="2" />
-            </g>
-
             <!-- Right Repeat (:||) -->
             <!-- Style: : | Thick -->
             <g v-if="measure.barType === 'right_repeat' || measure.barType === 'double_repeat'">
@@ -60,9 +54,6 @@
                 <line :x1="measure.width - 4" y1="10" :x2="measure.width - 4" y2="50" class="bar-line" />
                 <line :x1="measure.width" y1="10" :x2="measure.width" y2="50" class="bar-line bold" />
             </g>
-            
-            <!-- Double Repeat (:||:) -->
-             <!-- Complex, combination of both? For now handle as right repeat or custom -->
 
             <!-- Ending Bracket -->
             <g v-if="measure.endingStart">

@@ -267,28 +267,26 @@ export class FanqieParser {
 
             // 小节线 - 结束当前小节
             if (this.isBarLine(token.type)) {
-                // Update bar type of current measure (the bar line CLOSES the measure)
-                // Actually, usually bar line is at the end of measure.
-                // But what if it's start?
-                // Let's assume standard: Notes... | Notes... |
-                // When we hit |, we define the barType of the COMPLETED measure.
-
-                // Wait, if we have |: Notes :|
-                // The |: is start of measure? Or end of previous?
-                // Ideally, a measure has a "left bar" and "right bar"?
-                // Or we just store the bar type that ENDS the measure?
-                // The spec type `FanqieBarType` implies specific bar lines.
-                // Let's attach the bar line type to the measure that just finished.
-
-                currentMeasure.barType = this.mapBarType(token.type)
+                const barType = this.mapBarType(token.type)
                 this.advance()
 
-                // Check for ending brackets at the bar line (e.g. [ or ])
-                // Actually ENDING_START is usually at bar line.
-                // If we see ENDING_START immediately after or before?
-
-                measures.push(currentMeasure)
-                currentMeasure = { notes: [], barType: 'bar' }
+                // 左反复线 |: 和双反复线 :||: 是下一小节的开始标记，
+                // 不应作为当前小节的结束线类型。
+                // 处理方式：将当前小节以普通小节线结束，
+                // 然后将反复标记放在新小节的 startBarType 上。
+                if (barType === 'left_repeat' || barType === 'double_repeat') {
+                    // 如果当前小节有音符，先以普通小节线推入
+                    if (currentMeasure.notes.length > 0) {
+                        currentMeasure.barType = (barType === 'double_repeat') ? 'right_repeat' : 'bar'
+                        measures.push(currentMeasure)
+                    }
+                    // 新小节标记为左反复开始
+                    currentMeasure = { notes: [], barType: 'bar', startBarType: 'left_repeat' }
+                } else {
+                    currentMeasure.barType = barType
+                    measures.push(currentMeasure)
+                    currentMeasure = { notes: [], barType: 'bar' }
+                }
             }
             else if (token.type === 'ENDING_START') {
                 // Skip for now, logic needs to attach to measure
