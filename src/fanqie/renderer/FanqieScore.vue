@@ -463,34 +463,50 @@ const layoutLines = computed(() => {
             currentX += mWidth
 
             // 3.4 重新计算 Beam (减时线) - 按拍切分
-            // 八分音符及更短的音符应以拍为单位进行切分
+            // 八分音符及更短的音符应以拍为单位进行分组连线
             const beams = []
             const maxReduce = Math.max(0, ...notes.map(n => n.durationReduceCount || 0))
 
+            // 先计算每个音符的拍位起始和所属拍组
+            const noteBeats = []
+            {
+                let beat = 0
+                for (let i = 0; i < notes.length; i++) {
+                    const dur = adjustedDurations[i]
+                    noteBeats.push({
+                        startBeat: beat,
+                        endBeat: beat + dur,
+                        // 所属拍组 = 向下取整（以四分音符为一拍）
+                        beatGroup: Math.floor(beat + 0.001)
+                    })
+                    beat += dur
+                }
+            }
+
             for (let level = 1; level <= maxReduce; level++) {
                 let startIdx = -1
-                let currentBeat = 0
 
                 for (let i = 0; i < notes.length; i++) {
                     const note = notes[i]
-                    const noteDuration = adjustedDurations[i]
-                    const noteStartBeat = currentBeat
-                    const noteEndBeat = currentBeat + noteDuration
-
-                    // 判断是否跨拍（音符起始和结束不在同一个整拍内）
-                    const startBeatFloor = Math.floor(noteStartBeat)
-                    const endBeatFloor = Math.floor(noteEndBeat - 0.001) // 减小误差
-
-                    const crossesBeat = startBeatFloor !== endBeatFloor && noteDuration < 1
 
                     if ((note.durationReduceCount || 0) >= level) {
                         if (startIdx === -1) {
                             startIdx = i
                         }
-                        // 检查是否需要在此处断开（跨拍或有beamBreakNext标记）
-                        if (note.beamBreakNext || (i < notes.length - 1 && crossesBeat)) {
-                            // 结束当前beam组
-                            if (startIdx !== -1 && startIdx <= i) {
+
+                        // 检查是否需要在此音符之后断开：
+                        // 1. 是最后一个音符
+                        // 2. 下一个音符不在同一个拍组内
+                        // 3. 下一个音符的减时层级不够
+                        // 4. 当前音符有 beamBreakNext 标记
+                        const isLast = (i === notes.length - 1)
+                        const nextNoteTooShort = !isLast && (notes[i + 1].durationReduceCount || 0) < level
+                        const nextInDiffBeatGroup = !isLast && noteBeats[i + 1].beatGroup !== noteBeats[i].beatGroup
+                        const hasBreakMark = note.beamBreakNext
+
+                        if (isLast || nextNoteTooShort || nextInDiffBeatGroup || hasBreakMark) {
+                            // 结束当前 beam 组
+                            if (startIdx <= i) {
                                 beams.push({
                                     x1: notes[startIdx].relativeX - 8,
                                     x2: notes[i].relativeX + 8,
@@ -503,21 +519,12 @@ const layoutLines = computed(() => {
                         if (startIdx !== -1) {
                             beams.push({
                                 x1: notes[startIdx].relativeX - 8,
-                                x2: notes[i-1].relativeX + 8,
+                                x2: notes[i - 1].relativeX + 8,
                                 level
                             })
                             startIdx = -1
                         }
                     }
-
-                    currentBeat = noteEndBeat
-                }
-                if (startIdx !== -1) {
-                    beams.push({
-                        x1: notes[startIdx].relativeX - 8,
-                        x2: notes[notes.length-1].relativeX + 8,
-                        level
-                    })
                 }
             }
 
