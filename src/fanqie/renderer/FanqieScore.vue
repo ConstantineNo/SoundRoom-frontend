@@ -256,33 +256,34 @@ const getNoteText = (note) => {
 }
 
 const getLeftBracketX = (note) => {
-    // 如果有前倚音，括号应在倚音左侧
-    if (note.graceNotes && note.graceNotes.length > 0) {
-        return -(note.graceNotes.length * 9 + 8)
-    }
-    // 如果有变音记号，括号应在记号左侧
+    let leftEdge = -10 // 默认：主音符左侧（font-size=20px 约宽10px，中心在0）
+    // 如果有变音记号，向左偏移
     if (note.accidental) {
-        return -22
+        leftEdge = -20
     }
-    return -12
+    // 如果有前倚音，括号应在倚音组最左侧
+    if (note.graceNotes && note.graceNotes.length > 0) {
+        leftEdge = -(note.graceNotes.length * 9 + 10)
+    }
+    return leftEdge - 4 // 额外 4px 间距
 }
 
 const getRightBracketX = (note) => {
-    // 如果有附点，括号应在附点右侧
+    let rightEdge = 10 // 默认：主音符右侧
+    // 如果有附点
     if (note.dots > 0) {
-        return 20
+        rightEdge = 18
     }
     // 如果有后倚音
     if (note.afterGraceNotes && note.afterGraceNotes.length > 0) {
-        return 4 + note.afterGraceNotes.length * 9 + 8
+        rightEdge = 4 + note.afterGraceNotes.length * 9 + 8
     }
-    // 如果有增时线，延音线是独立的文本元素，宽度较宽
+    // 如果有增时线 (dashes)，括号放在最后一条 dash 之后
     if (note.extendLines && note.extendLines.length > 0) {
-        // 取最后一个延音线的位置
         const lastDash = note.extendLines[note.extendLines.length - 1]
-        return lastDash.dx + 12
+        rightEdge = lastDash.dx + 14 // dash 宽度 + 间距
     }
-    return 12
+    return rightEdge + 2 // 额外 2px 间距
 }
 
 /**
