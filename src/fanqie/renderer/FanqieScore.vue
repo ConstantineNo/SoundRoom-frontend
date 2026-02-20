@@ -102,10 +102,7 @@
                       class="underline" />
             </g>
 
-            <!-- Slurs (连音线) -->
-            <g v-for="(slur, sIdx) in measure.slurs" :key="'s'+sIdx">
-                <path :d="slur.path" class="slur-line" fill="none" />
-            </g>
+
 
             <!-- Tuplets (三连音标记) -->
             <g v-for="(tuplet, tIdx) in measure.tuplets" :key="'t'+tIdx">
@@ -117,6 +114,11 @@
             </g>
           </g>
           
+          <!-- Slurs (连音线 - 行级别，支持跨小节) -->
+          <g v-for="(slur, sIdx) in line.slurs" :key="'s'+sIdx">
+              <path :d="slur.path" class="slur-line" fill="none" />
+          </g>
+
           <!-- Volta Brackets (跳房子) -->
           <g v-for="(volta, vIdx) in line.voltaBrackets" :key="'v'+vIdx">
             <g :transform="`translate(0, ${-5 - (volta.heightOffset * 8)})`">
@@ -528,11 +530,7 @@ const layoutLines = computed(() => {
                 }
             }
 
-            // 3.5 重新计算 Slur (连音线)
-            const slurs = []
-            let slurStack = []
-
-            // 3.6 检测并记录三连音组（用于渲染数字标记）
+            // 3.5 检测并记录三连音组（用于渲染数字标记）
             const tuplets = []
 
             notes.forEach((note, i) => {
@@ -557,41 +555,6 @@ const layoutLines = computed(() => {
                         x2: endNote.relativeX
                     })
                 }
-
-                // 处理普通连音线（非三连音）
-                if (note.slurStarts > 0 && !note.tupletStart) {
-                    for (let s = 0; s < note.slurStarts; s++) {
-                        slurStack.push({ startIdx: i, level: slurStack.length })
-                    }
-                }
-                if (note.slurEnds > 0) {
-                    for (let s = 0; s < note.slurEnds; s++) {
-                        if (slurStack.length > 0) {
-                            const slurInfo = slurStack.pop()
-                            const startNote = notes[slurInfo.startIdx]
-                            const endNote = note
-                            const x1 = startNote.relativeX
-                            const x2 = endNote.relativeX
-
-                            // 计算连音线覆盖范围内最大的高音八度数，避免与高音点重叠
-                            let maxOctave = 0
-                            for (let k = slurInfo.startIdx; k <= i; k++) {
-                                if (notes[k].octave > maxOctave) {
-                                    maxOctave = notes[k].octave
-                                }
-                            }
-                            // 基础 y = 15 (距顶部), 每层连音线再上移 8px
-                            // 如果有高音点, 额外上移 (5px per octave dot level)
-                            const octaveOffset = maxOctave > 0 ? (maxOctave * 5 + 3) : 0
-                            const y = 30 - 15 - (slurInfo.level * 8) - octaveOffset
-
-                            const distance = x2 - x1
-                            const controlHeight = Math.min(distance / 4, 15)
-                            const path = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y - controlHeight} ${x2} ${y}`
-                            slurs.push({ path, level: slurInfo.level })
-                        }
-                    }
-                }
             })
 
             return {
@@ -600,7 +563,6 @@ const layoutLines = computed(() => {
                 width: mWidth,
                 notes,
                 beams,
-                slurs,
                 tuplets
             }
         })
@@ -638,6 +600,56 @@ const layoutLines = computed(() => {
             voltaStart = null
         }
 
+        // 5. 计算连音线/延音线（行级别，支持跨小节）
+        const lineSlurs = []
+        const lineSlurStack = []
+
+        // 将整行所有音符展平为一个数组，保留绝对坐标
+        const allLineNotes = []
+        computedMeasures.forEach(m => {
+            m.notes.forEach(note => {
+                allLineNotes.push(note)
+            })
+        })
+
+        allLineNotes.forEach((note, i) => {
+            // 处理连音线起始（非三连音）
+            if (note.slurStarts > 0 && !note.tupletStart) {
+                for (let s = 0; s < note.slurStarts; s++) {
+                    lineSlurStack.push({ startIdx: i, level: lineSlurStack.length })
+                }
+            }
+            if (note.slurEnds > 0) {
+                for (let s = 0; s < note.slurEnds; s++) {
+                    if (lineSlurStack.length > 0) {
+                        const slurInfo = lineSlurStack.pop()
+                        const startNote = allLineNotes[slurInfo.startIdx]
+                        const endNote = note
+                        // 使用绝对坐标，因为起始和结束可能在不同小节
+                        const x1 = startNote.absoluteX
+                        const x2 = endNote.absoluteX
+
+                        // 计算连音线覆盖范围内最大的高音八度数，避免与高音点重叠
+                        let maxOctave = 0
+                        for (let k = slurInfo.startIdx; k <= i; k++) {
+                            if (allLineNotes[k].octave > maxOctave) {
+                                maxOctave = allLineNotes[k].octave
+                            }
+                        }
+                        // 基础 y = 15 (距顶部), 每层连音线再上移 8px
+                        // 如果有高音点, 额外上移 (5px per octave dot level)
+                        const octaveOffset = maxOctave > 0 ? (maxOctave * 5 + 3) : 0
+                        const y = 30 - 15 - (slurInfo.level * 8) - octaveOffset
+
+                        const distance = x2 - x1
+                        const controlHeight = Math.min(distance / 4, 15)
+                        const path = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y - controlHeight} ${x2} ${y}`
+                        lineSlurs.push({ path, level: slurInfo.level })
+                    }
+                }
+            }
+        })
+
         const lineY = currentY
         currentY += rowHeight
 
@@ -645,7 +657,8 @@ const layoutLines = computed(() => {
             measures: computedMeasures,
             y: lineY,
             computedLyrics,
-            voltaBrackets
+            voltaBrackets,
+            slurs: lineSlurs
         }
     })
 
