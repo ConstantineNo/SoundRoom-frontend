@@ -158,6 +158,10 @@
               <text v-if="note.accidental === 'sharp'" x="-14" y="-8" class="accidental">#</text>
               <text v-if="note.accidental === 'flat'" x="-14" y="-8" class="accidental">b</text>
               <text v-if="note.accidental === 'natural'" x="-14" y="-8" class="accidental">=</text>
+
+              <!-- Accompaniment Brackets -->
+              <text v-if="note.leftBracket" class="bracket" :x="getLeftBracketX(note)" y="0">(</text>
+              <text v-if="note.rightBracket" class="bracket" :x="getRightBracketX(note)" y="0">)</text>
             </g>
 
             <!-- Beams (Underlines) -->
@@ -249,6 +253,36 @@ const getNoteText = (note) => {
     if (note.type === 'hiddenRest') return ''
     if (note.type === 'rhythm') return 'X'
     return note.degree
+}
+
+const getLeftBracketX = (note) => {
+    // 如果有前倚音，括号应在倚音左侧
+    if (note.graceNotes && note.graceNotes.length > 0) {
+        return -(note.graceNotes.length * 9 + 8)
+    }
+    // 如果有变音记号，括号应在记号左侧
+    if (note.accidental) {
+        return -22
+    }
+    return -12
+}
+
+const getRightBracketX = (note) => {
+    // 如果有附点，括号应在附点右侧
+    if (note.dots > 0) {
+        return 20
+    }
+    // 如果有后倚音
+    if (note.afterGraceNotes && note.afterGraceNotes.length > 0) {
+        return 4 + note.afterGraceNotes.length * 9 + 8
+    }
+    // 如果有增时线，延音线是独立的文本元素，宽度较宽
+    if (note.extendLines && note.extendLines.length > 0) {
+        // 取最后一个延音线的位置
+        const lastDash = note.extendLines[note.extendLines.length - 1]
+        return lastDash.dx + 12
+    }
+    return 12
 }
 
 /**
@@ -973,5 +1007,11 @@ const totalHeight = computed(() => {
 .grace-accidental {
     font-size: 8px;
     font-style: italic;
+}
+.bracket {
+    font-size: 20px;
+    font-weight: bold;
+    text-anchor: middle;
+    dominant-baseline: central;
 }
 </style>
