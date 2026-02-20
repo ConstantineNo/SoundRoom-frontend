@@ -358,6 +358,7 @@ const layoutLines = computed(() => {
 
     // 3. 计算每个小节内的布局
     let currentY = 50 // Start padding
+    let crossLineSlurCarry = [] // 跨行连音线状态
 
     const computedLines = lines.map(lineObj => {
         let currentX = lineStartPadding // 使用左侧padding代替固定值20
@@ -600,55 +601,114 @@ const layoutLines = computed(() => {
             voltaStart = null
         }
 
-        // 5. 计算连音线/延音线（行级别，支持跨小节）
+        // 5. 计算连音线/延音线（行级别，支持跨小节和跨行）
+        // 跨小节：括号形（¼弧 + 直线 + ¼弧），位于上方
+        // 小节内：弧线形，位于下方（更靠近音符）
         const lineSlurs = []
         const lineSlurStack = []
 
-        // 将整行所有音符展平为一个数组，保留绝对坐标
+        // 将整行所有音符展平，标记所属小节索引
         const allLineNotes = []
-        computedMeasures.forEach(m => {
+        computedMeasures.forEach((m, mIdx) => {
             m.notes.forEach(note => {
-                allLineNotes.push(note)
+                allLineNotes.push({ ...note, _mIdx: mIdx })
             })
         })
 
+        // 行尾 X 坐标（用于跨行延伸）
+        const lineEndX = computedMeasures.length > 0
+            ? computedMeasures[computedMeasures.length - 1].x + computedMeasures[computedMeasures.length - 1].width
+            : lineStartPadding
+
+        // 将上一行未匹配的 slurStart 放入 stack（标记为跨行）
+        crossLineSlurCarry.forEach(() => {
+            lineSlurStack.push({ startIdx: -1, crossLine: true })
+        })
+
         allLineNotes.forEach((note, i) => {
-            // 处理连音线起始（非三连音）
+            // 连音线起始（非三连音）
             if (note.slurStarts > 0 && !note.tupletStart) {
                 for (let s = 0; s < note.slurStarts; s++) {
-                    lineSlurStack.push({ startIdx: i, level: lineSlurStack.length })
+                    lineSlurStack.push({ startIdx: i, crossLine: false })
                 }
             }
+            // 连音线结束
             if (note.slurEnds > 0) {
                 for (let s = 0; s < note.slurEnds; s++) {
                     if (lineSlurStack.length > 0) {
                         const slurInfo = lineSlurStack.pop()
-                        const startNote = allLineNotes[slurInfo.startIdx]
-                        const endNote = note
-                        // 使用绝对坐标，因为起始和结束可能在不同小节
-                        const x1 = startNote.absoluteX
-                        const x2 = endNote.absoluteX
+                        const x2 = note.absoluteX
 
-                        // 计算连音线覆盖范围内最大的高音八度数，避免与高音点重叠
+                        // 判断是否跨小节
+                        const isCrossMeasure = slurInfo.crossLine ||
+                            (slurInfo.startIdx >= 0 && allLineNotes[slurInfo.startIdx]._mIdx !== note._mIdx)
+
+                        // 计算覆盖范围内最大高音八度
                         let maxOctave = 0
-                        for (let k = slurInfo.startIdx; k <= i; k++) {
-                            if (allLineNotes[k].octave > maxOctave) {
-                                maxOctave = allLineNotes[k].octave
-                            }
+                        const rangeStart = Math.max(0, slurInfo.startIdx)
+                        for (let k = rangeStart; k <= i; k++) {
+                            if (allLineNotes[k].octave > maxOctave) maxOctave = allLineNotes[k].octave
                         }
-                        // 基础 y = 15 (距顶部), 每层连音线再上移 8px
-                        // 如果有高音点, 额外上移 (5px per octave dot level)
                         const octaveOffset = maxOctave > 0 ? (maxOctave * 5 + 3) : 0
-                        const y = 30 - 15 - (slurInfo.level * 8) - octaveOffset
 
-                        const distance = x2 - x1
-                        const controlHeight = Math.min(distance / 4, 15)
-                        const path = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y - controlHeight} ${x2} ${y}`
-                        lineSlurs.push({ path, level: slurInfo.level })
+                        if (isCrossMeasure) {
+                            // ─── 跨小节/跨行：括号形连音线 ───
+                            const x1 = slurInfo.crossLine
+                                ? lineStartPadding
+                                : allLineNotes[slurInfo.startIdx].absoluteX
+                            const yBase = 30 - 20 - octaveOffset
+                            const yTop = yBase - 5
+                            const r = 4
+
+                            let path
+                            if (slurInfo.crossLine) {
+                                // 从行首开始（无左侧弧线）
+                                path = `M ${x1} ${yTop} L ${x2 - r} ${yTop} Q ${x2} ${yTop} ${x2} ${yBase}`
+                            } else {
+                                // 完整括号形：左¼弧 → 直线 → 右¼弧
+                                path = `M ${x1} ${yBase} Q ${x1} ${yTop} ${x1 + r} ${yTop} L ${x2 - r} ${yTop} Q ${x2} ${yTop} ${x2} ${yBase}`
+                            }
+                            lineSlurs.push({ path })
+                        } else {
+                            // ─── 小节内：弧线形连音线 ───
+                            const x1 = allLineNotes[slurInfo.startIdx].absoluteX
+                            const y = 30 - 13 - octaveOffset
+                            const distance = x2 - x1
+                            const controlHeight = Math.min(distance / 5, 6)
+                            const path = `M ${x1} ${y} Q ${(x1 + x2) / 2} ${y - controlHeight} ${x2} ${y}`
+                            lineSlurs.push({ path })
+                        }
                     }
                 }
             }
         })
+
+        // 行末未匹配的 slurStart → 画到行尾（无右侧弧线），carry 到下一行
+        const newCarry = []
+        while (lineSlurStack.length > 0) {
+            const slurInfo = lineSlurStack.pop()
+            const startX = slurInfo.startIdx >= 0
+                ? allLineNotes[slurInfo.startIdx].absoluteX
+                : lineStartPadding
+
+            // 计算覆盖范围内最大高音八度
+            let maxOctave = 0
+            const rangeStart = Math.max(0, slurInfo.startIdx)
+            for (let k = rangeStart; k < allLineNotes.length; k++) {
+                if (allLineNotes[k].octave > maxOctave) maxOctave = allLineNotes[k].octave
+            }
+            const octaveOffset = maxOctave > 0 ? (maxOctave * 5 + 3) : 0
+
+            const yBase = 30 - 20 - octaveOffset
+            const yTop = yBase - 5
+            const r = 4
+
+            // 到行尾（只有左侧弧线，无右侧弧线）
+            const path = `M ${startX} ${yBase} Q ${startX} ${yTop} ${startX + r} ${yTop} L ${lineEndX} ${yTop}`
+            lineSlurs.push({ path })
+            newCarry.push({})
+        }
+        crossLineSlurCarry = newCarry
 
         const lineY = currentY
         currentY += rowHeight
