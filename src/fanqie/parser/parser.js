@@ -284,8 +284,17 @@ export class FanqieParser {
                     currentMeasure = { notes: [], barType: 'bar', startBarType: 'left_repeat' }
                 } else {
                     currentMeasure.barType = barType
-                    measures.push(currentMeasure)
-                    currentMeasure = { notes: [], barType: 'bar' }
+                    if (currentMeasure.notes.length > 0) {
+                        measures.push(currentMeasure)
+                        currentMeasure = { notes: [], barType: 'bar' }
+                    } else {
+                        // 空小节不推入 measures（避免产生空白位置）
+                        // 但需要将已有的标记传递到新小节
+                        const carried = {}
+                        if (currentMeasure.endingStart) carried.endingStart = currentMeasure.endingStart
+                        if (currentMeasure.startBarType) carried.startBarType = currentMeasure.startBarType
+                        currentMeasure = { notes: [], barType: 'bar', ...carried }
+                    }
                 }
             }
             else if (token.type === 'ENDING_START') {
@@ -306,7 +315,15 @@ export class FanqieParser {
             }
             else if (token.type === 'ENDING_END') {
                 this.advance()
-                currentMeasure.endingEnd = true
+                // endingEnd 标记应该在包含音符的小节上
+                // 如果当前小节有音符，标记在当前小节上
+                // 否则标记在上一个已推入的小节上（通常是 :] 的情况：
+                //   : 作为右反复线推入了小节，] 应标记在刚推入的那个小节）
+                if (currentMeasure.notes.length > 0) {
+                    currentMeasure.endingEnd = true
+                } else if (measures.length > 0) {
+                    measures[measures.length - 1].endingEnd = true
+                }
             }
             else if (token.type === 'WHITESPACE') {
                 this.advance()
