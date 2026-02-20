@@ -522,18 +522,45 @@ export class FanqieParser {
     }
 
     parseGraceNotes(content, note, isAfter) {
-        // content is string like "1'/" inside the []
-        // Need to parse this string into FanqieGraceNote objects
-        // For simplicity in this iteration: skip detailed sub-parsing
-        // or implement a simple loop.
+        const graceNotes = []
+        let pos = 0
 
-        // Let's create dummy grace notes for now
-        // The renderer will likely need more details.
-        // TODO: Implement mini-tokenizer for grace notes if needed
+        while (pos < content.length) {
+            const ch = content[pos]
+            if (ch >= '1' && ch <= '7') {
+                const gn = {
+                    degree: parseInt(ch),
+                    octave: 0,
+                    durationReduceCount: 0
+                }
+                pos++
 
-        // Attempt simple parsing:
-        // "5.1." -> 5., 1.
-        // It's tricky without a full tokenizer.
+                // Parse modifiers
+                while (pos < content.length) {
+                    const mod = content[pos]
+                    if (mod === "'") gn.octave++
+                    else if (mod === ",") gn.octave--
+                    else if (mod === "/") gn.durationReduceCount++
+                    else if (mod === "#") gn.accidental = 'sharp'
+                    else if (mod === "$") gn.accidental = 'flat'
+                    else if (mod === "=") gn.accidental = 'natural'
+                    else break
+                    pos++
+                }
+                graceNotes.push(gn)
+            } else {
+                // Skip unhandled/invalid chars in grace notes
+                pos++
+            }
+        }
+
+        if (isAfter) {
+            if (!note.afterGraceNotes) note.afterGraceNotes = []
+            note.afterGraceNotes.push(...graceNotes)
+        } else {
+            if (!note.graceNotes) note.graceNotes = []
+            note.graceNotes.push(...graceNotes)
+        }
     }
 
     /**

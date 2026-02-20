@@ -60,6 +60,71 @@
             <!-- Notes -->
             <g v-for="(note, nIdx) in measure.notes" :key="nIdx" :transform="`translate(${note.relativeX}, 30)`">
               
+              <!-- Grace Notes (前倚音) -->
+              <g v-if="note.graceNotes && note.graceNotes.length > 0" class="grace-notes-group">
+                <!-- 每个倚音数字 (位于主音符上方) -->
+                <g v-for="(gn, gIdx) in note.graceNotes" :key="'gn'+gIdx"
+                   :transform="`translate(${-((note.graceNotes.length - gIdx) * 9) - 2}, 0)`">
+                  <!-- 高八度点 -->
+                  <template v-if="gn.octave > 0">
+                    <circle v-for="d in gn.octave" :key="'gh'+d"
+                      cx="0" :cy="-27 - (d-1)*4" r="1" class="grace-dot" />
+                  </template>
+                  <!-- 倚音数字 -->
+                  <text class="grace-note-text" x="0" y="-17">{{ gn.degree }}</text>
+                  <!-- 低八度点 -->
+                  <template v-if="gn.octave < 0">
+                    <circle v-for="d in Math.abs(gn.octave)" :key="'gl'+d"
+                      cx="0" :cy="-10 + getGraceMaxUnderlines(note.graceNotes) * 3 + 2 + (d-1)*4" r="1" class="grace-dot" />
+                  </template>
+                  <!-- 升降号 -->
+                  <text v-if="gn.accidental === 'sharp'" class="grace-accidental" x="-6" y="-19">#</text>
+                  <text v-if="gn.accidental === 'flat'" class="grace-accidental" x="-6" y="-19">b</text>
+                  <text v-if="gn.accidental === 'natural'" class="grace-accidental" x="-6" y="-19">=</text>
+                </g>
+                <!-- 倚音组共享下划线 (与主音符顶部对齐 y=-10) -->
+                <template v-if="getGraceMaxUnderlines(note.graceNotes) > 0">
+                  <line v-for="u in getGraceMaxUnderlines(note.graceNotes)" :key="'gu'+u"
+                    class="grace-underline"
+                    :x1="-note.graceNotes.length * 9 - 6"
+                    :y1="-10 + (u-1)*3"
+                    :x2="-4"
+                    :y2="-10 + (u-1)*3" />
+                </template>
+                <!-- 连接弧线：四分之一圆弧，从减时线中间出发，圆心在减时线上，弧向下弯到主音符 -->
+                <path class="grace-slur-arc" 
+                  :d="getGraceArcPath(note.graceNotes, false)" />
+              </g>
+
+              <!-- After Grace Notes (后倚音) -->
+              <g v-if="note.afterGraceNotes && note.afterGraceNotes.length > 0" class="grace-notes-group">
+                <!-- 每个后倚音数字 (位于主音符右上方) -->
+                <g v-for="(gn, gIdx) in note.afterGraceNotes" :key="'agn'+gIdx"
+                   :transform="`translate(${8 + gIdx * 9}, 0)`">
+                  <template v-if="gn.octave > 0">
+                    <circle v-for="d in gn.octave" :key="'agh'+d"
+                      cx="0" :cy="-27 - (d-1)*4" r="1" class="grace-dot" />
+                  </template>
+                  <text class="grace-note-text" x="0" y="-17">{{ gn.degree }}</text>
+                  <template v-if="gn.octave < 0">
+                    <circle v-for="d in Math.abs(gn.octave)" :key="'agl'+d"
+                      cx="0" :cy="-10 + getGraceMaxUnderlines(note.afterGraceNotes) * 3 + 2 + (d-1)*4" r="1" class="grace-dot" />
+                  </template>
+                </g>
+                <!-- 后倚音共享下划线 -->
+                <template v-if="getGraceMaxUnderlines(note.afterGraceNotes) > 0">
+                  <line v-for="u in getGraceMaxUnderlines(note.afterGraceNotes)" :key="'agu'+u"
+                    class="grace-underline"
+                    :x1="4"
+                    :y1="-10 + (u-1)*3"
+                    :x2="4 + note.afterGraceNotes.length * 9 + 4"
+                    :y2="-10 + (u-1)*3" />
+                </template>
+                <!-- 连接弧线 -->
+                <path class="grace-slur-arc"
+                  :d="getGraceArcPath(note.afterGraceNotes, true)" />
+              </g>
+
               <!-- Pitch (clickable) -->
               <text class="note-text" :class="{ 'rest': note.type === 'rest', 'clickable': note.sourceLine != null }"
                     @click="onNoteClick(note)">
@@ -184,6 +249,56 @@ const getNoteText = (note) => {
     if (note.type === 'hiddenRest') return ''
     if (note.type === 'rhythm') return 'X'
     return note.degree
+}
+
+/**
+ * 获取倚音组应该显示的下划线数量（取最大值）
+ * 倚音默认是8分音符(1条线)，加一个 / 变成16分(2条线)
+ */
+const getGraceMaxUnderlines = (graceNotes) => {
+    if (!graceNotes || graceNotes.length === 0) return 0
+    // durationReduceCount=0 默认8分音符 → 1条线
+    // durationReduceCount=1 → 16分音符 → 2条线
+    return Math.max(...graceNotes.map(gn => (gn.durationReduceCount || 0) + 1))
+}
+
+/**
+ * 倚音连接弧线路径（四分之一圆弧）
+ * 
+ * 几何关系：
+ * - 减时线（下划线）与主音符顶部对齐，位于 y = -10
+ * - 圆弧圆心位于减时线上（靠近主音符的那一端）
+ * - 弧线从减时线中间出发，向下弯曲到主音符方向
+ * - 呈现"端着托盘的手"的效果：减时线是托盘，弧线是手臂
+ *
+ * @param {Array} graceNotes - 倚音数组
+ * @param {boolean} isAfter - 是否为后倚音
+ */
+const getGraceArcPath = (graceNotes, isAfter) => {
+    const underlineCount = getGraceMaxUnderlines(graceNotes)
+    const count = graceNotes.length
+    // 最底部一条下划线的 y 坐标
+    const underlineY = -10 + (underlineCount - 1) * 3
+    // 固定半径：主音符 font-size=20px 的 1/4，保证弧线大小一致不与主音符冲突
+    const r = 5
+
+    if (isAfter) {
+        // 后倚音：弧从减时线中点向左下方弯曲（朝向主音符）
+        const leftX = 4
+        const rightX = 4 + count * 9 + 4
+        const midX = (leftX + rightX) / 2
+        // 圆心在起点正下方，弧向左弯 90°
+        // 起点: (midX, underlineY)  终点: (midX - r, underlineY + r)
+        return `M ${midX} ${underlineY} A ${r} ${r} 0 0 1 ${midX - r} ${underlineY + r}`
+    } else {
+        // 前倚音：弧从减时线中点向右下方弯曲（朝向主音符）
+        const leftX = -count * 9 - 6
+        const rightX = -4
+        const midX = (leftX + rightX) / 2
+        // 圆心在起点正下方，弧向右弯 90°
+        // 起点: (midX, underlineY)  终点: (midX + r, underlineY + r)
+        return `M ${midX} ${underlineY} A ${r} ${r} 0 0 0 ${midX + r} ${underlineY + r}`
+    }
 }
 
 /**
@@ -829,6 +944,34 @@ const totalHeight = computed(() => {
 
 .accidental {
     font-size: 12px;
+    font-style: italic;
+}
+
+/* Grace Notes 倚音样式 */
+.grace-note-text {
+    font-size: 12px;
+    font-weight: bold;
+    text-anchor: middle;
+    dominant-baseline: central;
+}
+
+.grace-dot {
+    fill: black;
+}
+
+.grace-slur-arc {
+    stroke: black;
+    stroke-width: 1;
+    fill: none;
+}
+
+.grace-underline {
+    stroke: black;
+    stroke-width: 1;
+}
+
+.grace-accidental {
+    font-size: 8px;
     font-style: italic;
 }
 </style>

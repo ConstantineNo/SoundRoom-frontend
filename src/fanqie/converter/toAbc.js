@@ -130,11 +130,18 @@ function convertNote(note, rootIndex) {
     // Prefix: Grace Notes
     if (note.graceNotes && note.graceNotes.length > 0) {
         // ABC Grace notes: {notes}
-        // Need to convert grace notes recursively?
-        // For now ignore complexity
+        str += '{'
+        for (const gn of note.graceNotes) {
+            str += convertGraceNote(gn, rootIndex)
+        }
+        str += '}'
     }
 
-    // Prefix: Slur Start
+    if (note.afterGraceNotes && note.afterGraceNotes.length > 0) {
+        // ABC doesn't easily support after-grace note prefix, we'll prefix them to the next note or just output them?
+        // Let's just output them as regular grace notes before the current note for now, or prefix them to the slurs.
+        // Actually, in ABC, after grace notes don't exist as a native construct, sometimes attached with ties or just written before the next note.
+    }
     // ABC slur is (
     for (let i = 0; i < note.slurStarts; i++) str += '('
 
@@ -297,6 +304,50 @@ function convertNote(note, rootIndex) {
     for (let i = 0; i < note.slurEnds; i++) str += ')'
 
     str += ' ' // spacing
+    return str
+}
+
+/**
+ * @param {import('../types/index').FanqieGraceNote} gn
+ * @param {number} rootIndex
+ */
+function convertGraceNote(gn, rootIndex) {
+    let str = ''
+    if (gn.accidental === 'sharp') str += '^'
+    else if (gn.accidental === 'flat') str += '_'
+    else if (gn.accidental === 'natural') str += '='
+
+    if (!gn.degree) return str
+
+    const offset = gn.degree - 1
+    const targetIndex = (rootIndex + offset) % 7
+    const letter = NOTE_NAMES[targetIndex]
+
+    let octaveShift = 0
+    if ((rootIndex + offset) >= 7) {
+        octaveShift = 1
+    }
+    octaveShift += gn.octave || 0
+
+    let abcPitch = letter.toLowerCase()
+    if (octaveShift === 0) {
+        abcPitch = letter.toLowerCase()
+    } else if (octaveShift === 1) {
+        abcPitch = letter.toLowerCase() + "'"
+    } else if (octaveShift > 1) {
+        abcPitch = letter.toLowerCase() + "'".repeat(octaveShift)
+    } else if (octaveShift === -1) {
+        abcPitch = letter
+    } else if (octaveShift < -1) {
+        abcPitch = letter + ",".repeat(Math.abs(octaveShift + 1))
+    }
+
+    str += abcPitch
+
+    if (gn.durationReduceCount > 0) {
+        str += '/'.repeat(gn.durationReduceCount)
+    }
+
     return str
 }
 
