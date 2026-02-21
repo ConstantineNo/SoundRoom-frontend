@@ -52,6 +52,7 @@ import { fanqieToAbc } from '../fanqie/converter/toAbc'
 import FanqieScore from '../fanqie/renderer/FanqieScore.vue'
 import { useAbcPlayer } from '../composables/useAbcPlayer'
 import abcjs from 'abcjs'
+import 'abcjs/abcjs-audio.css'
 
 const sourceCode = ref(`V: 1.0
 B: 测试曲目
@@ -102,7 +103,11 @@ const updateScore = () => {
                  // Ideally we keep controller and just setTune.
                  // But useAbcPlayer is simple wrapper. Let's try re-init.
                  
-                 initAudio('#audio-container')
+                 initAudio('#audio-container', {
+                   tuneOptions: {
+                     soundFontUrl: "/soundfonts/FluidR3_GM/"
+                   }
+                 })
              }
         }
     }
