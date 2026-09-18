@@ -1,0 +1,72 @@
+{
+  "runs": [
+    {
+      "started_at": "2026-09-18T20:25:12.667Z",
+      "project": "desktop",
+      "base_url": "http://163.192.34.11/api",
+      "username": "frontend_319052500df547",
+      "score_ids": [
+        7,
+        8
+      ],
+      "checks": [
+        "真实注册与页面登录（urlencoded登录、裸认证响应）",
+        "只填曲名/原调/指法即可建档，无附件、私有、pending、不可跟练",
+        "D＋筒音作2候选为A，用户采用后confirmed；音域未验证",
+        "页面新增演奏段并保存A→G→A顺序、指法2→5→2、原段ID与If-Match",
+        "真实分类聚合与列表：同曲命中两段只计1首、命中段名、whole不误匹配",
+        "真实412：保留草稿、加载最新详情且禁止盲目覆盖",
+        "PNG真实上传和带Bearer的Blob预览；匿名读取私有曲目和资料均404",
+        "UTF-8 ABC绑定指定方案并stored；仍未冒称可跟练",
+        "修改原调只使依赖原调的段needs_review，独立段落调性段仍confirmed",
+        "页面退出清除身份；桌面/手机视口无横向溢出和未捕获页面异常"
+      ],
+      "passed": true,
+      "finished_at": "2026-09-18T20:25:42.691Z",
+      "browser_errors": []
+    },
+    {
+      "started_at": "2026-09-18T20:32:09.404Z",
+      "project": "mobile",
+      "base_url": "http://163.192.34.11/api",
+      "username": "frontend_2dede7994ab040",
+      "score_ids": [
+        9,
+        10
+      ],
+      "checks": [
+        "真实注册与页面登录（urlencoded登录、裸认证响应）",
+        "只填曲名/原调/指法即可建档，无附件、私有、pending、不可跟练",
+        "D＋筒音作2候选为A，用户采用后confirmed；音域未验证",
+        "页面新增演奏段并保存A→G→A顺序、指法2→5→2、原段ID与If-Match",
+        "真实分类聚合与列表：同曲命中两段只计1首、命中段名、whole不误匹配",
+        "真实412：保留草稿、加载最新详情且禁止盲目覆盖",
+        "PNG真实上传和带Bearer的Blob预览；匿名读取私有曲目和资料均404",
+        "UTF-8 ABC绑定指定方案并stored；仍未冒称可跟练",
+        "修改原调只使依赖原调的段needs_review，独立段落调性段仍confirmed",
+        "页面退出清除身份；桌面/手机视口无横向溢出和未捕获页面异常"
+      ],
+      "passed": true,
+      "finished_at": "2026-09-18T20:34:35.706Z",
+      "browser_errors": []
+    }
+  ],
+  "mock_regression": {
+    "passed": 30,
+    "duration_seconds": 17.9
+  },
+  "production_build": "passed",
+  "server_recovery": {
+    "cause": "Rate Limit Exceeded",
+    "banned_at_utc": "2026-09-18 20:26:07.117744",
+    "original_expires_at_utc": "2026-09-18 21:26:07.116702",
+    "changed_rows": 1,
+    "other_bans_untouched": true,
+    "security_rules_changed": false,
+    "service_restarted": false,
+    "dictionary_http_after_recovery": 200,
+    "test_minimum_request_interval_ms": 2200
+  },
+  "credentials_saved": false,
+  "publications": 0
+}

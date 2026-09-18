@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import Library from '../views/Library.vue'
+import ScoreDetail from '../views/ScoreDetail.vue'
 import Playlist from '../views/Playlist.vue'
 import Workbench from '../views/Workbench.vue'
 import Editor from '../views/Editor.vue'
@@ -13,6 +14,7 @@ const routes = [
     { path: '/login', component: Login },
     { path: '/register', component: Register },
     { path: '/library', component: Library },
+    { path: '/scores/:scoreId', component: ScoreDetail },
     { path: '/playlist', component: Playlist },
     { path: '/practice/:scoreId', component: Workbench },
     { path: '/editor/:scoreId', component: Editor },

@@ -3,6 +3,7 @@ import axios from 'axios'
 
 export const useUserStore = defineStore('user', {
     state: () => ({
+        id: null,
         token: localStorage.getItem('token') || null,
         username: localStorage.getItem('username') || null,
         role: localStorage.getItem('role') || null
@@ -21,12 +22,15 @@ export const useUserStore = defineStore('user', {
                 return null
             }
             
+            const requestedToken = this.token
             try {
                 const response = await axios.get('/api/auth/me', {
                     headers: { 'Authorization': `Bearer ${this.token}` }
                 })
                 
+                if (requestedToken !== this.token) return null
                 const userInfo = response.data
+                this.id = userInfo.id
                 
                 // 更新用户信息
                 if (userInfo.role) {
@@ -53,11 +57,14 @@ export const useUserStore = defineStore('user', {
         },
         async login(username, password) {
             try {
-                const formData = new FormData()
+                const formData = new URLSearchParams()
                 formData.append('username', username)
                 formData.append('password', password)
 
                 const response = await axios.post('/api/auth/login', formData)
+                this.id = null
+                this.role = null
+                localStorage.removeItem('role')
                 this.token = response.data.access_token
                 this.username = username
 
@@ -89,6 +96,7 @@ export const useUserStore = defineStore('user', {
             }
         },
         logout() {
+            this.id = null
             this.token = null
             this.username = null
             this.role = null

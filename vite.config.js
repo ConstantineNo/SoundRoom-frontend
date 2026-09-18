@@ -1,23 +1,15 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [vue()],
-  server: {
-    host: '0.0.0.0', // 允许外部访问
-    port: 5173,      // 指定端口
-    allowedHosts: ['temp.shomlin.com'],
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      },
-      '/uploads': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      }
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  // The browser stays on /api; this target is a backend origin without /api.
+  const target = env.SOUNDROOM_API_TARGET || 'http://163.192.34.11'
+  return {
+    plugins: [vue()],
+    server: {
+      host: '0.0.0.0', port: 5173, allowedHosts: ['temp.shomlin.com'],
+      proxy: { '/api': { target, changeOrigin: true, rewrite: path => path.replace(/^\/api/, '') } }
     }
   }
 })

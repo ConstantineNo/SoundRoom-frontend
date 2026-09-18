@@ -25,3 +25,10 @@ dist-ssr
 
 deploy/
 .env
+.npm-cache/
+test-results/
+playwright-report/
+
+.playwright-browsers/
+
+.tmp/

@@ -4,7 +4,7 @@
       <n-dialog-provider>
         <n-notification-provider>
           <n-layout style="height: 100vh; display: flex; flex-direction: column;">
-            <n-layout-header v-if="!isWorkbenchPage" bordered style="padding: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <n-layout-header v-if="!isWorkbenchPage" bordered class="app-header">
               <div style="font-size: 1.2rem; font-weight: bold;">乐器学习一步到位</div>
               <n-space align="center">
                 <router-link to="/library"><n-button text>曲谱库</n-button></router-link>
@@ -19,7 +19,7 @@
                 </div>
               </n-space>
             </n-layout-header>
-            <n-layout-content :content-style="{ padding: isFullWidthPage ? '0' : '24px', flex: 1 }">
+            <n-layout-content :content-style="{ padding: isFullWidthPage ? '0' : 'clamp(14px, 3vw, 32px)', flex: 1 }">
               <router-view />
             </n-layout-content>
             <n-layout-footer v-if="!isWorkbenchPage" bordered style="padding: 10px; text-align: center;">
@@ -79,6 +79,7 @@ const handleLogout = () => {
 </script>
 
 <style>
+.app-header { padding: 12px 24px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
 body {
   margin: 0;
   font-family: v-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
