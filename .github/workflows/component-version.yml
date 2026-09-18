@@ -1,0 +1,72 @@
+name: Component version
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/versioning/version.py check
+      - run: python -m unittest discover -s scripts/versioning -p 'test_*.py' -v
+
+  refresh:
+    needs: validate
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && !github.event.deleted
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.version.outputs.commit }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: version
+        run: python scripts/versioning/version.py apply
+      - name: Record version commit
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_COMMIT: ${{ steps.version.outputs.commit }}
+          SOURCE_COMMIT: ${{ steps.version.outputs.source }}
+        run: |
+          printf 'Version: `%s`\n\nVersion commit: `%s`\n\nSource push: `%s`\n' "$VERSION" "$VERSION_COMMIT" "$SOURCE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: [validate, refresh]
+    if: always() && needs.validate.result == 'success' && (needs.refresh.result == 'success' || needs.refresh.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.refresh.outputs.commit || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Verify delivered version
+        run: node scripts/versioning/check-build.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: error
